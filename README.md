@@ -19,10 +19,12 @@ A MagicMirror2 module for displaying UniFi hotspot vouchers from a UniFi OS cons
 
 ## Installation
 
+### Option 1: Standard Install (Git)
+
 From your MagicMirror `modules` folder:
 
 ```bash
-git clone https://example.com/MMM-UniFiHotspotVouchers.git
+git clone https://github.com/rroach3753/MMM-UniFiHotspotVouchers.git
 cd MMM-UniFiHotspotVouchers
 npm install
 ```
@@ -31,6 +33,32 @@ If you copied this folder manually, place it at:
 
 ```text
 MagicMirror/modules/MMM-UniFiHotspotVouchers
+```
+
+### Option 2: Install with MMPM (MagicMirror Package Manager)
+
+If you use MMPM, install with:
+
+```bash
+mmpm install MMM-UniFiHotspotVouchers
+```
+
+## Updating
+
+### Option 1: Standard Update (Git)
+
+From your module folder:
+
+```bash
+cd MagicMirror/modules/MMM-UniFiHotspotVouchers
+git pull
+npm install
+```
+
+### Option 2: Update with MMPM
+
+```bash
+mmpm update MMM-UniFiHotspotVouchers
 ```
 
 ## Example Config
