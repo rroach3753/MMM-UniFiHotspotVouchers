@@ -6,6 +6,8 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-04-29
+
 ### Added
 - Initial release of MMM-UniFiHotspotVouchers module.
 - Support for UniFi OS console authentication via local username/password or API key.
