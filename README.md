@@ -19,6 +19,11 @@ A MagicMirror2 module for displaying UniFi hotspot vouchers from a UniFi OS cons
 
 ## Installation
 
+MMPM is optional. You can use the standard Git method below without MMPM.
+
+If you want to use MMPM commands, install MMPM first by following the official instructions:
+https://github.com/sdetweil/MagicMirror_scripts/tree/master/MagicMirror-package-manager
+
 ### Option 1: Standard Install (Git)
 
 From your MagicMirror `modules` folder:
