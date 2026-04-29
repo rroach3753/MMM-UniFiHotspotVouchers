@@ -1,6 +1,6 @@
 # MMM-UniFiHotspotVouchers
 
-A MagicMirror2 module for displaying UniFi hotspot vouchers from a UniFi OS console running the Network application.
+A [MagicMirror²](https://github.com/MagicMirrorOrg/MagicMirror)  module for displaying UniFi hotspot vouchers from a UniFi OS console running the Network application.
 
 ## Features
 
