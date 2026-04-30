@@ -1,8 +1,13 @@
 {
   "name": "mmm-unifihotspotvouchers",
   "version": "1.0.0",
+  "type": "commonjs",
   "description": "MagicMirror module for displaying UniFi hotspot vouchers from a UniFi OS console",
   "main": "MMM-UniFiHotspotVouchers.js",
+  "scripts": {
+    "lint": "eslint"
+  },
+  "author": "RMR IT Solutions, LLC",
   "license": "MIT",
   "keywords": [
     "MagicMirror",
@@ -11,5 +16,12 @@
     "hotspot",
     "voucher"
   ],
-  "dependencies": {}
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rroach3753/MMM-UniFiHotspotVouchers.git"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "eslint": "^10.2.1"
+  }
 }

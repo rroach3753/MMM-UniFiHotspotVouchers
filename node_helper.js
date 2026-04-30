@@ -1,7 +1,7 @@
 const NodeHelper = require("node_helper");
-const http = require("http");
-const https = require("https");
-const { URL } = require("url");
+const http = require("node:http");
+const https = require("node:https");
+const { URL } = require("node:url");
 
 function normalizeBoolean(value, fallback) {
   if (value === undefined || value === null) {
