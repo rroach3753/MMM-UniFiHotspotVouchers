@@ -11,6 +11,10 @@ A [MagicMirror²](https://github.com/MagicMirrorOrg/MagicMirror)  module for dis
 - Supports optional compact mode, masking voucher codes, and inactive voucher display
 - Refreshes on a configurable interval
 
+## Screenshot
+
+![MMM-UniFiHotspotVouchers screenshot](images/screenshot_1.png)
+
 ## Prerequisites
 
 1. A working MagicMirror2 installation.
