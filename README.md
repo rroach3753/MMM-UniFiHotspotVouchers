@@ -17,7 +17,7 @@ A [MagicMirror²](https://github.com/MagicMirrorOrg/MagicMirror)  module for dis
 
 ## Prerequisites
 
-1. A working MagicMirror2 installation.
+1. A working MagicMirror² installation.
 2. A UniFi OS console such as a Cloud Key, UDM, or similar device.
 3. A local UniFi OS username and password with permission to read Network data.
 
@@ -100,7 +100,7 @@ Add this to your `config/config.js` file:
     compact: false,
     showBorders: true,
     showBackground: true,
-  }
+  },
 }
 ```
 
