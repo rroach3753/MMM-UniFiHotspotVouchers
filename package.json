@@ -20,7 +20,6 @@
     "type": "git",
     "url": "https://github.com/rroach3753/MMM-UniFiHotspotVouchers.git"
   },
-  "dependencies": {},
   "devDependencies": {
     "eslint": "^10.3.0"
   }
