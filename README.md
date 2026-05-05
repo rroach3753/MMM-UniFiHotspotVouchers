@@ -99,8 +99,8 @@ Add this to your `config/config.js` file:
     maxRows: 12,
     compact: false,
     showBorders: true,
-    showBackground: true,
-  },
+    showBackground: true
+  }
 }
 ```
 
