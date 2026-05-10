@@ -87,7 +87,7 @@ Add this to your `config/config.js` file:
     apiKeyHeader: "X-API-Key",
     authMode: "auto",
     site: "default",
-    verifySSL: false,
+    verifySSL: true,
     refreshInterval: 300000,
     requestTimeout: 10000,
     showInactive: false,
@@ -125,7 +125,7 @@ All other settings are optional and fall back to the defaults shown below.
 | `apiKeyHeader` | String | No | `X-API-Key` | Header name used when sending the API key. |
 | `authMode` | String | No | `auto` | Authentication mode: `auto`, `apikey`, or `login`. Auto tries API key first when present, then falls back to login if credentials are configured. |
 | `site` | String | No | `default` | Network application site name. Most single-site deployments use `default`. |
-| `verifySSL` | Boolean | No | `false` | Set to `true` to enforce TLS certificate validation. Leave `false` for self-signed local certs. |
+| `verifySSL` | Boolean | No | `true` | Enforces TLS certificate validation by default. Set `false` only for trusted local self-signed environments. |
 | `refreshInterval` | Number | No | `300000` | How often the module refreshes voucher data, in milliseconds. |
 | `showInactive` | Boolean | No | `false` | Shows inactive, disabled, and used vouchers instead of only active ones. |
 | `showSummary` | Boolean | No | `true` | Shows the summary chips for active and total vouchers. |
@@ -149,10 +149,10 @@ This module communicates with your UniFi OS console, which requires proper secur
 
 ### SSL/TLS Certificate Verification
 
-- **Default Behavior:** `verifySSL: false` (disabled by default for local self-signed certificates)
-- **Local Network:** Safe to use `verifySSL: false` on trusted local networks (home/office LAN)
-- **Remote/Untrusted Networks:** Set `verifySSL: true` and ensure the controller has a valid trusted certificate to prevent man-in-the-middle attacks
-- **Self-Signed Certificates:** If using a self-signed certificate on a local network, keeping `verifySSL: false` is acceptable
+- **Default Behavior:** `verifySSL: true` (TLS certificate verification enabled by default)
+- **Recommended:** Keep `verifySSL: true` whenever possible to prevent man-in-the-middle attacks.
+- **Self-Signed Certificates:** In trusted local-only environments, you can set `verifySSL: false` if cert trust cannot be configured.
+- **Production / Untrusted Networks:** Use trusted certificates and keep `verifySSL: true`.
 
 ### Credentials Management
 
@@ -195,7 +195,7 @@ The module stores UniFi credentials in your `config/config.js` file. **Keep this
 - The module first tries UniFi OS proxy endpoints such as `/proxy/network/api/s/default/rest/hotspot/voucher`.
 - If that fails, it falls back to the older Network app endpoints such as `/api/s/default/stat/voucher`.
 - If you provide `apiKey`, the module will try API-key auth first when `authMode` is `auto` or `apikey`.
-- If your Cloud Key uses a self-signed certificate, leave `verifySSL: false`.
+- If your Cloud Key uses a self-signed certificate and trust cannot be configured in Node.js, set `verifySSL: false` as a local-network fallback.
 - If you want to display expired vouchers for audit purposes, set `showInactive: true`.
 - If you want to avoid exposing full voucher codes on the mirror, set `maskVoucherCode: true`.
 - If you want a cleaner mirror look, set `showBorders: false`, `showBackground: false`, or both.
@@ -213,7 +213,7 @@ The module stores UniFi credentials in your `config/config.js` file. **Keep this
 - **API key issues:** Confirm the key belongs to an account that can read the Network application and that `authMode` is set correctly.
 - **Intermittent 403 Forbidden errors:** The module should now re-authenticate once automatically; if it persists, verify the UniFi user or API key still has permission to read voucher data.
 - **No vouchers displayed:** Confirm the Network application site name and that hotspot vouchers exist for that site.
-- **Certificate/SSL errors:** Set `verifySSL: false` for self-signed certificates on local networks, or fix the console certificate for production use.
+- **Certificate/SSL errors:** Prefer fixing the certificate chain and keeping `verifySSL: true`; use `verifySSL: false` only for trusted local self-signed setups.
 - **Module shows "Loading" indefinitely or hangs:** 
   - The module will timeout after `requestTimeout` milliseconds (default 10000ms). If the controller is slow, increase this value.
   - Check that the `controllerUrl` is correct and the controller is reachable on the network.

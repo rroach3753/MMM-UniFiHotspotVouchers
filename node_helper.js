@@ -130,13 +130,17 @@ module.exports = NodeHelper.create({
 
   sendError(message) {
     this.log(`Error: ${message}`);
-    this.sendSocketNotification("UNIFI_HOTSPOT_ERROR", message);
+    this.sendSocketNotification("UNIFI_HOTSPOT_ERROR", {
+      error: message,
+      instanceId: this.config && this.config.instanceId ? this.config.instanceId : null
+    });
   },
 
   sendData(vouchers) {
     this.sendSocketNotification("UNIFI_HOTSPOT_DATA", {
       vouchers,
-      fetchedAt: Date.now()
+      fetchedAt: Date.now(),
+      instanceId: this.config && this.config.instanceId ? this.config.instanceId : null
     });
   },
 
@@ -301,11 +305,17 @@ module.exports = NodeHelper.create({
       const request = transport.request(url, {
         method,
         headers,
-        rejectUnauthorized: normalizeBoolean(this.config.verifySSL, false)
+        rejectUnauthorized: normalizeBoolean(this.config.verifySSL, true)
       }, (response) => {
         const chunks = [];
+        let bodyLength = 0;
         response.on("data", (chunk) => {
           chunks.push(chunk);
+          bodyLength += chunk.length;
+
+          if (bodyLength > 1048576) {
+            request.destroy(new Error("Response body exceeded 1 MB limit"));
+          }
         });
 
         response.on("end", () => {

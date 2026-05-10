@@ -40,7 +40,7 @@ Module.register("MMM-UniFiHotspotVouchers", {
     username: "",
     password: "",
     site: "default",
-    verifySSL: false,
+    verifySSL: true,
     refreshInterval: 300000,
     requestTimeout: 10000,
     showInactive: false,
@@ -60,6 +60,7 @@ Module.register("MMM-UniFiHotspotVouchers", {
   },
 
   start() {
+    this.instanceId = this.identifier || this.name;
     this.dataState = {
       vouchers: [],
       fetchedAt: null,
@@ -67,7 +68,10 @@ Module.register("MMM-UniFiHotspotVouchers", {
       loading: true
     };
 
-    this.sendSocketNotification("UNIFI_HOTSPOT_CONFIG", this.config);
+    this.sendSocketNotification("UNIFI_HOTSPOT_CONFIG", {
+      ...this.config,
+      instanceId: this.instanceId
+    });
   },
 
   getStyles() {
@@ -75,13 +79,19 @@ Module.register("MMM-UniFiHotspotVouchers", {
   },
 
   socketNotificationReceived(notification, payload) {
+    const data = payload || {};
+
+    if (data.instanceId && data.instanceId !== this.instanceId) {
+      return;
+    }
+
     if (notification === "UNIFI_HOTSPOT_DATA") {
       if (normalizeBoolean(this.config.debug, false)) {
-        console.log("[MMM-UniFiHotspotVouchers] Received data notification with", (payload.vouchers || []).length, "vouchers");
+        console.log("[MMM-UniFiHotspotVouchers] Received data notification with", (data.vouchers || []).length, "vouchers");
       }
       this.dataState = {
-        vouchers: payload.vouchers || [],
-        fetchedAt: payload.fetchedAt || Date.now(),
+        vouchers: data.vouchers || [],
+        fetchedAt: data.fetchedAt || Date.now(),
         error: null,
         loading: false
       };
@@ -91,12 +101,12 @@ Module.register("MMM-UniFiHotspotVouchers", {
 
     if (notification === "UNIFI_HOTSPOT_ERROR") {
       if (normalizeBoolean(this.config.debug, false)) {
-        console.log("[MMM-UniFiHotspotVouchers] Received error notification:", payload);
+        console.log("[MMM-UniFiHotspotVouchers] Received error notification:", data);
       }
       this.dataState = {
         vouchers: [],
         fetchedAt: Date.now(),
-        error: payload || "Unable to load UniFi hotspot vouchers.",
+        error: data.error || "Unable to load UniFi hotspot vouchers.",
         loading: false
       };
       this.updateDom(this.config.animationSpeed || 1000);
