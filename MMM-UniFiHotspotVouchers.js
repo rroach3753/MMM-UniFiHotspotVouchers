@@ -42,6 +42,7 @@ Module.register("MMM-UniFiHotspotVouchers", {
     site: "default",
     verifySSL: false,
     refreshInterval: 300000,
+    requestTimeout: 10000,
     showInactive: false,
     showSummary: true,
     showNotes: true,
@@ -53,6 +54,7 @@ Module.register("MMM-UniFiHotspotVouchers", {
     compact: false,
     showBorders: true,
     showBackground: true,
+    debug: false,
     emptyMessage: "No hotspot vouchers found.",
     loadingMessage: "Loading UniFi vouchers..."
   },
@@ -74,6 +76,9 @@ Module.register("MMM-UniFiHotspotVouchers", {
 
   socketNotificationReceived(notification, payload) {
     if (notification === "UNIFI_HOTSPOT_DATA") {
+      if (normalizeBoolean(this.config.debug, false)) {
+        console.log("[MMM-UniFiHotspotVouchers] Received data notification with", (payload.vouchers || []).length, "vouchers");
+      }
       this.dataState = {
         vouchers: payload.vouchers || [],
         fetchedAt: payload.fetchedAt || Date.now(),
@@ -85,6 +90,9 @@ Module.register("MMM-UniFiHotspotVouchers", {
     }
 
     if (notification === "UNIFI_HOTSPOT_ERROR") {
+      if (normalizeBoolean(this.config.debug, false)) {
+        console.log("[MMM-UniFiHotspotVouchers] Received error notification:", payload);
+      }
       this.dataState = {
         vouchers: [],
         fetchedAt: Date.now(),
@@ -263,14 +271,18 @@ Module.register("MMM-UniFiHotspotVouchers", {
 
     return filtered.sort((left, right) => {
       if (sortBy === "created") {
-        return (left.createdAt || 0) - (right.createdAt || 0);
+        const leftTime = left.createdAt ?? Infinity;
+        const rightTime = right.createdAt ?? Infinity;
+        return leftTime - rightTime;
       }
 
       if (sortBy === "code") {
         return String(left.code || "").localeCompare(String(right.code || ""));
       }
 
-      return (left.createdAt || 0) - (right.createdAt || 0);
+      const leftTime = left.createdAt ?? Infinity;
+      const rightTime = right.createdAt ?? Infinity;
+      return leftTime - rightTime;
     });
   },
 

@@ -95,7 +95,6 @@
   color: #bcefc6;
 }
 
-.unifi-hotspot__row--expired .unifi-hotspot__code,
 .unifi-hotspot__row--disabled .unifi-hotspot__code,
 .unifi-hotspot__row--used .unifi-hotspot__code {
   color: #ffc9c9;
@@ -128,7 +127,6 @@
   color: #7be495;
 }
 
-.unifi-hotspot__status--expired,
 .unifi-hotspot__status--disabled,
 .unifi-hotspot__status--used {
   color: #ff8e8e;

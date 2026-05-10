@@ -89,6 +89,7 @@ Add this to your `config/config.js` file:
     site: "default",
     verifySSL: false,
     refreshInterval: 300000,
+    requestTimeout: 10000,
     showInactive: false,
     showSummary: true,
     showNotes: true,
@@ -100,6 +101,7 @@ Add this to your `config/config.js` file:
     compact: false,
     showBorders: true,
     showBackground: true,
+    debug: false,
   },
 },
 ```
@@ -136,8 +138,57 @@ All other settings are optional and fall back to the defaults shown below.
 | `compact` | Boolean | No | `false` | Uses tighter spacing and smaller table padding. |
 | `showBorders` | Boolean | No | `true` | Shows or hides the border and shadow around the voucher card. |
 | `showBackground` | Boolean | No | `true` | Shows or hides the translucent card background behind the voucher table. |
+| `requestTimeout` | Number | No | `10000` | HTTP request timeout in milliseconds. Prevents hangs if controller is unreachable. |
+| `debug` | Boolean | No | `false` | Enable debug logging to browser console and server logs for troubleshooting. |
 | `emptyMessage` | String | No | `No hotspot vouchers found.` | Message shown when no vouchers match the current filter. |
 | `loadingMessage` | String | No | `Loading UniFi vouchers...` | Message shown while the first fetch is in progress. |
+
+## Security Considerations
+
+This module communicates with your UniFi OS console, which requires proper security practices:
+
+### SSL/TLS Certificate Verification
+
+- **Default Behavior:** `verifySSL: false` (disabled by default for local self-signed certificates)
+- **Local Network:** Safe to use `verifySSL: false` on trusted local networks (home/office LAN)
+- **Remote/Untrusted Networks:** Set `verifySSL: true` and ensure the controller has a valid trusted certificate to prevent man-in-the-middle attacks
+- **Self-Signed Certificates:** If using a self-signed certificate on a local network, keeping `verifySSL: false` is acceptable
+
+### Credentials Management
+
+The module stores UniFi credentials in your `config/config.js` file. **Keep this file secure:**
+
+1. **File Permissions:** Restrict read access to your config file:
+   ```bash
+   chmod 600 config/config.js
+   ```
+
+2. **Backup Security:** Ensure backups of your `config.js` are stored securely and not shared
+
+3. **Environment Variables (Recommended):** Consider using environment variables instead of plaintext:
+   ```bash
+   export UNIFI_USERNAME="your_username"
+   export UNIFI_PASSWORD="your_password"
+   ```
+   Then reference them in your config (requires custom module modification)
+
+4. **API Key Alternative:** If available, use API keys instead of username/password:
+   - API keys provide more granular permission control
+   - Easier to rotate without changing user accounts
+   - Set `authMode: "apikey"` in your config
+
+### Network Security
+
+- The module connects to your UniFi OS console over HTTPS (default)
+- HTTP connections are possible but not recommended (use HTTPS)
+- Keep your UniFi controller and MagicMirror on a secure, private network
+- Do not expose your UniFi controller to the public internet without proper VPN/firewall protection
+
+### Sensitive Data Display
+
+- Set `maskVoucherCode: true` if you want to hide full voucher codes on the physical mirror display
+- The module only displays what you configure—no credentials are displayed on screen
+- Browser console and server logs may contain debugging information if `debug: true`; disable in production
 
 ## Notes
 
@@ -158,8 +209,18 @@ All other settings are optional and fall back to the defaults shown below.
 
 ## Troubleshooting
 
-- If the module shows an authentication error, confirm the username and password can log into the UniFi OS console directly.
-- If you are using `apiKey`, confirm the key belongs to an account that can read the Network application and that `authMode` is set correctly.
-- If you see a `403 Forbidden` error that clears after a restart, the module should now re-authenticate once automatically; if it still persists, verify the UniFi user or API key still has permission to read voucher data.
-- If the module returns no vouchers, confirm the Network application site name and that hotspot vouchers exist for that site.
-- If you get a certificate error, set `verifySSL: false` or fix the console certificate.
+- **Authentication errors:** Confirm the username and password can log into the UniFi OS console directly.
+- **API key issues:** Confirm the key belongs to an account that can read the Network application and that `authMode` is set correctly.
+- **Intermittent 403 Forbidden errors:** The module should now re-authenticate once automatically; if it persists, verify the UniFi user or API key still has permission to read voucher data.
+- **No vouchers displayed:** Confirm the Network application site name and that hotspot vouchers exist for that site.
+- **Certificate/SSL errors:** Set `verifySSL: false` for self-signed certificates on local networks, or fix the console certificate for production use.
+- **Module shows "Loading" indefinitely or hangs:** 
+  - The module will timeout after `requestTimeout` milliseconds (default 10000ms). If the controller is slow, increase this value.
+  - Check that the `controllerUrl` is correct and the controller is reachable on the network.
+  - Enable `debug: true` in config to see detailed logging in the browser console (F12) and server logs to identify where it's getting stuck.
+- **Need to troubleshoot authentication or API calls:**
+  - Enable `debug: true` in your config to log detailed information about endpoint attempts, authentication success/failure, and number of vouchers retrieved.
+  - Open the browser console (F12) to see real-time debug messages.
+  - Check the MagicMirror server logs for additional backend debugging output.
+  - Verify the UniFi controller is responding with `curl -k https://your-controller-url/api/s/default/stat/voucher` (replace with your actual URL and site).
+

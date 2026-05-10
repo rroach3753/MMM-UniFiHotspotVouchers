@@ -6,6 +6,30 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-05-10
+
+### Added
+- `requestTimeout` configuration option (default 10000ms) to prevent hangs when controller is unreachable.
+- `debug` configuration option for optional console and server logging to aid troubleshooting.
+- Comprehensive security documentation in README covering SSL/TLS, credentials management, and best practices.
+- Enhanced logging for API endpoint attempts and authentication events.
+- Race condition prevention: initialization state tracking to avoid overlapping config notifications.
+
+### Changed
+- HTTP response buffering now uses `Buffer.concat()` instead of string concatenation for improved performance.
+- Voucher sorting now properly handles `null` creation timestamps using nullish coalescing operator.
+
+### Fixed
+- HTTP request timeout handling: requests now properly timeout and reject if controller is unresponsive.
+- Session authentication re-authentication now properly clears session state before retrying.
+- Removed unused `sessionHeaders` state variable that was never populated or used.
+- Removed unused CSS classes for `expired` status that was never set by the module.
+
+### Security
+- Added documentation for file permission protection of `config.js` containing credentials.
+- Clarified SSL verification default behavior and when to enable/disable it.
+- Added recommended practices for API key usage and credential management.
+
 ## [1.0.0] - 2026-04-29
 
 ### Added

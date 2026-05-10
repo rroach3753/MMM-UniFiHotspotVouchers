@@ -72,11 +72,16 @@ module.exports = NodeHelper.create({
     this.config = null;
     this.refreshTimer = null;
     this.sessionCookies = [];
-    this.sessionHeaders = {};
+    this.isInitializing = false;
   },
 
   socketNotificationReceived(notification, payload) {
     if (notification !== "UNIFI_HOTSPOT_CONFIG") {
+      return;
+    }
+
+    if (this.isInitializing) {
+      this.log("Already initializing, skipping duplicate config notification");
       return;
     }
 
@@ -86,12 +91,15 @@ module.exports = NodeHelper.create({
 
   async initialize() {
     this.stopTimer();
+    this.isInitializing = true;
 
     try {
       await this.refreshData();
       this.scheduleNextRefresh();
     } catch (error) {
       this.sendError(error.message);
+    } finally {
+      this.isInitializing = false;
     }
   },
 
@@ -114,7 +122,14 @@ module.exports = NodeHelper.create({
     }, Math.max(30000, interval));
   },
 
+  log(message) {
+    if (normalizeBoolean(this.config.debug, false)) {
+      console.log(`[MMM-UniFiHotspotVouchers] ${message}`);
+    }
+  },
+
   sendError(message) {
+    this.log(`Error: ${message}`);
     this.sendSocketNotification("UNIFI_HOTSPOT_ERROR", message);
   },
 
@@ -196,13 +211,17 @@ module.exports = NodeHelper.create({
 
     for (const endpoint of endpoints) {
       try {
+        this.log(`Attempting endpoint: ${endpoint}`);
         const response = await this.requestJson("GET", controllerUrl, endpoint, null, null, authOptions);
         const records = this.extractVoucherRecords(response);
         if (records.length) {
+          this.log(`Successfully retrieved ${records.length} voucher records from ${endpoint}`);
           return records.map((record) => this.normalizeVoucher(record)).filter(Boolean);
         }
       } catch (error) {
+        this.log(`Endpoint ${endpoint} failed: ${error.message}`);
         if (shouldRetryAfterAuthFailure && this.isAuthFailure(error)) {
+          this.log("Auth failure detected, attempting re-authentication");
           return this.retryVoucherFetchAfterReauth(controllerUrl, endpoints, authOptions);
         }
 
@@ -228,7 +247,6 @@ module.exports = NodeHelper.create({
 
   async retryVoucherFetchAfterReauth(controllerUrl, endpoints, authOptions) {
     this.sessionCookies = [];
-    this.sessionHeaders = {};
     await this.login(controllerUrl, normalizeString(this.config.username, ""), normalizeString(this.config.password, ""));
     return this.fetchVoucherEndpoints(controllerUrl, endpoints, {
       cookies: this.sessionCookies,
@@ -247,11 +265,12 @@ module.exports = NodeHelper.create({
 
     const cookies = Array.isArray(response.headers["set-cookie"]) ? response.headers["set-cookie"] : [];
     this.sessionCookies = cookies.map((cookie) => cookie.split(";")[0]).filter(Boolean);
-    this.sessionHeaders = {};
 
     if (!this.sessionCookies.length) {
       throw new Error("UniFi login did not return a session cookie.");
     }
+
+    this.log("Successfully authenticated with UniFi controller");
   },
 
   async requestJson(method, controllerUrl, path, body, extraHeaders, authOptions) {
@@ -284,12 +303,14 @@ module.exports = NodeHelper.create({
         headers,
         rejectUnauthorized: normalizeBoolean(this.config.verifySSL, false)
       }, (response) => {
-        let raw = "";
+        const chunks = [];
         response.on("data", (chunk) => {
-          raw += chunk;
+          chunks.push(chunk);
         });
 
         response.on("end", () => {
+          const raw = Buffer.concat(chunks).toString();
+
           if (response.statusCode < 200 || response.statusCode >= 300) {
             const error = new Error(`HTTP ${response.statusCode}: ${raw.slice(0, 200)}`);
             error.statusCode = response.statusCode;
@@ -309,6 +330,13 @@ module.exports = NodeHelper.create({
             reject(new Error(`Failed to parse UniFi response: ${error.message}`));
           }
         });
+      });
+
+      const timeoutMs = normalizeNumber(this.config.requestTimeout, 10000);
+      request.setTimeout(timeoutMs);
+      request.on("timeout", () => {
+        request.destroy();
+        reject(new Error(`HTTP request timeout after ${timeoutMs}ms`));
       });
 
       request.on("error", (error) => reject(error));
