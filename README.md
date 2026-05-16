@@ -9,6 +9,7 @@ A [MagicMirror²](https://github.com/MagicMirrorOrg/MagicMirror)  module for dis
 - Tries the current UniFi OS proxy endpoints first, then falls back to legacy Network app paths
 - Shows voucher code, note, usage, and status
 - Supports optional compact mode, masking voucher codes, and inactive voucher display
+- Refreshes update in place after the first render without flashing the module
 - Refreshes on a configurable interval
 
 ## Screenshot
