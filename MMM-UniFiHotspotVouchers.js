@@ -61,6 +61,7 @@ Module.register("MMM-UniFiHotspotVouchers", {
 
   start() {
     this.instanceId = this.identifier || this.name;
+    this.hasRenderedData = false;
     this.dataState = {
       vouchers: [],
       fetchedAt: null,
@@ -95,7 +96,8 @@ Module.register("MMM-UniFiHotspotVouchers", {
         error: null,
         loading: false
       };
-      this.updateDom(this.config.animationSpeed || 1000);
+      this.updateDom(this.hasRenderedData ? 0 : this.config.animationSpeed || 1000);
+      this.hasRenderedData = true;
       return;
     }
 
@@ -109,7 +111,8 @@ Module.register("MMM-UniFiHotspotVouchers", {
         error: data.error || "Unable to load UniFi hotspot vouchers.",
         loading: false
       };
-      this.updateDom(this.config.animationSpeed || 1000);
+      this.updateDom(this.hasRenderedData ? 0 : this.config.animationSpeed || 1000);
+      this.hasRenderedData = true;
     }
   },
 
