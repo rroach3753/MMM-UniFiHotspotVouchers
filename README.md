@@ -27,7 +27,7 @@ A [MagicMirror²](https://github.com/MagicMirrorOrg/MagicMirror)  module for dis
 MMPM is optional. You can use the standard Git method below without MMPM.
 
 If you want to use MMPM commands, install MMPM first by following the official instructions:
-https://github.com/Bee-Mar/mmpm
+<https://github.com/Bee-Mar/mmpm>
 
 ### Option 1: Standard Install (Git)
 
@@ -160,6 +160,7 @@ This module communicates with your UniFi OS console, which requires proper secur
 The module stores UniFi credentials in your `config/config.js` file. **Keep this file secure:**
 
 1. **File Permissions:** Restrict read access to your config file:
+
    ```bash
    chmod 600 config/config.js
    ```
@@ -167,10 +168,12 @@ The module stores UniFi credentials in your `config/config.js` file. **Keep this
 2. **Backup Security:** Ensure backups of your `config.js` are stored securely and not shared
 
 3. **Environment Variables (Recommended):** Consider using environment variables instead of plaintext:
+
    ```bash
    export UNIFI_USERNAME="your_username"
    export UNIFI_PASSWORD="your_password"
    ```
+
    Then reference them in your config (requires custom module modification)
 
 4. **API Key Alternative:** If available, use API keys instead of username/password:
@@ -215,7 +218,7 @@ The module stores UniFi credentials in your `config/config.js` file. **Keep this
 - **Intermittent 403 Forbidden errors:** The module should now re-authenticate once automatically; if it persists, verify the UniFi user or API key still has permission to read voucher data.
 - **No vouchers displayed:** Confirm the Network application site name and that hotspot vouchers exist for that site.
 - **Certificate/SSL errors:** Prefer fixing the certificate chain and keeping `verifySSL: true`; use `verifySSL: false` only for trusted local self-signed setups.
-- **Module shows "Loading" indefinitely or hangs:** 
+- **Module shows "Loading" indefinitely or hangs:**
   - The module will timeout after `requestTimeout` milliseconds (default 10000ms). If the controller is slow, increase this value.
   - Check that the `controllerUrl` is correct and the controller is reachable on the network.
   - Enable `debug: true` in config to see detailed logging in the browser console (F12) and server logs to identify where it's getting stuck.
@@ -224,4 +227,3 @@ The module stores UniFi credentials in your `config/config.js` file. **Keep this
   - Open the browser console (F12) to see real-time debug messages.
   - Check the MagicMirror server logs for additional backend debugging output.
   - Verify the UniFi controller is responding with `curl -k https://your-controller-url/api/s/default/stat/voucher` (replace with your actual URL and site).
-
