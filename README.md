@@ -71,6 +71,24 @@ npm install
 mmpm update MMM-UniFiHotspotVouchers
 ```
 
+## Quick Start Config
+
+If you just want to get the module running, start with this minimal config in your `config/config.js`:
+
+```js
+{
+  module: "MMM-UniFiHotspotVouchers",
+  position: "top_right",
+  config: {
+    controllerUrl: "https://unifi.local",
+    username: "admin",
+    password: "YOUR_PASSWORD"
+  }
+}
+```
+
+You can switch to API-key authentication later by setting `apiKey` and `authMode: "apikey"`.
+
 ## Example Config
 
 Add this to your `config/config.js` file:
