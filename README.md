@@ -71,9 +71,9 @@ npm install
 mmpm update MMM-UniFiHotspotVouchers
 ```
 
-## Quick Start Config
+## Basic Config Example (Quick Start)
 
-If you just want to get the module running, start with this minimal config in your `config/config.js`:
+Add this module block to your MagicMirror `config/config.js` file to get started:
 
 ```js
 {
@@ -87,7 +87,7 @@ If you just want to get the module running, start with this minimal config in yo
 }
 ```
 
-You can switch to API-key authentication later by setting `apiKey` and `authMode: "apikey"`.
+Then restart MagicMirror. You can switch to API-key authentication later by setting `apiKey` and `authMode: "apikey"`.
 
 ## Example Config
 
