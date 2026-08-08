@@ -88,7 +88,7 @@ Add this module block to your MagicMirror `config/config.js` file to get started
     username: "admin",
     password: "YOUR_PASSWORD"
   }
-}
+},
 ```
 
 Then restart MagicMirror. You can switch to API-key authentication later by setting `apiKey` and `authMode: "apikey"`.

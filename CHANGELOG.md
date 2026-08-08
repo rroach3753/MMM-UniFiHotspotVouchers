@@ -11,10 +11,14 @@ The format is based on Keep a Changelog.
 - Changed TLS behavior to secure-by-default: `verifySSL` now defaults to `true` and helper fallback validation also defaults to certificate verification enabled.
 - Added instance-scoped frontend/backend socket payload routing (`instanceId`) to reduce cross-instance data bleed.
 - Added response-size guard (1 MB cap) for UniFi HTTP response buffering.
+- Updated the `brace-expansion` override to 5.0.9 to address a denial-of-service vulnerability.
 
 ### Changed
 
 - Updated README security guidance to align with secure default TLS verification and self-signed fallback recommendations.
+- Updated the README quick-start configuration to be directly pasteable into the MagicMirror modules array.
+- Updated ESLint to 10.8.1.
+- Updated CI workflows to use `actions/checkout@v7` and `actions/setup-node@v7`.
 
 ## [1.0.1] - 2026-05-10
 
