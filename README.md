@@ -71,7 +71,9 @@ npm install
 mmpm update MMM-UniFiHotspotVouchers
 ```
 
-## Basic Config Example (Quick Start)
+## Configuration
+
+### Basic Config Example (Quick Start)
 
 Add this module block to your MagicMirror `config/config.js` file to get started:
 
