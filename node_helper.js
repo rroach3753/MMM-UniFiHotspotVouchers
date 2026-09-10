@@ -85,8 +85,17 @@ module.exports = NodeHelper.create({
       return;
     }
 
-    this.config = payload || {};
+    this.config = this.applyServerSecrets(payload || {});
     this.initialize();
+  },
+
+  applyServerSecrets(config) {
+    return {
+      ...config,
+      username: process.env.UNIFI_HOTSPOT_USERNAME || process.env.UNIFI_USERNAME || config.username,
+      password: process.env.UNIFI_HOTSPOT_PASSWORD || process.env.UNIFI_PASSWORD || config.password,
+      apiKey: process.env.UNIFI_HOTSPOT_API_KEY || process.env.UNIFI_API_KEY || config.apiKey
+    };
   },
 
   async initialize() {
@@ -309,16 +318,24 @@ module.exports = NodeHelper.create({
       }, (response) => {
         const chunks = [];
         let bodyLength = 0;
+        let limitExceeded = false;
         response.on("data", (chunk) => {
-          chunks.push(chunk);
           bodyLength += chunk.length;
 
           if (bodyLength > 1048576) {
+            limitExceeded = true;
             request.destroy(new Error("Response body exceeded 1 MB limit"));
+            return;
           }
+
+          chunks.push(chunk);
         });
 
         response.on("end", () => {
+          if (limitExceeded) {
+            return;
+          }
+
           const raw = Buffer.concat(chunks).toString();
 
           if (response.statusCode < 200 || response.statusCode >= 300) {

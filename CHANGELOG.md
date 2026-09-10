@@ -12,6 +12,9 @@ The format is based on Keep a Changelog.
 - Added instance-scoped frontend/backend socket payload routing (`instanceId`) to reduce cross-instance data bleed.
 - Added response-size guard (1 MB cap) for UniFi HTTP response buffering.
 - Updated the `brace-expansion` override to 5.0.9 to address a denial-of-service vulnerability.
+- Updated the `smol-toml` override to 1.8.0 to address a development-tool denial-of-service vulnerability.
+- Added server-only environment variable support for UniFi credentials and API keys.
+- Added behavior tests for TLS verification, response-size limits, and credential precedence.
 
 ### Changed
 

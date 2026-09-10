@@ -191,14 +191,15 @@ The module stores UniFi credentials in your `config/config.js` file. **Keep this
 
 2. **Backup Security:** Ensure backups of your `config.js` are stored securely and not shared
 
-3. **Environment Variables (Recommended):** Consider using environment variables instead of plaintext:
+3. **Environment Variables (Recommended):** Set module-specific environment variables for the MagicMirror process and omit credentials from `config.js`:
 
    ```bash
-   export UNIFI_USERNAME="your_username"
-   export UNIFI_PASSWORD="your_password"
+    export UNIFI_HOTSPOT_API_KEY="your_api_key"
+    export UNIFI_HOTSPOT_USERNAME="your_username"
+    export UNIFI_HOTSPOT_PASSWORD="your_password"
    ```
 
-   Then reference them in your config (requires custom module modification)
+    These values take precedence over renderer configuration. `UNIFI_API_KEY`, `UNIFI_USERNAME`, and `UNIFI_PASSWORD` are also supported as shared fallbacks.
 
 4. **API Key Alternative:** If available, use API keys instead of username/password:
    - API keys provide more granular permission control
