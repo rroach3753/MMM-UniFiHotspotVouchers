@@ -20,7 +20,7 @@ The format is based on Keep a Changelog.
 
 - Updated README security guidance to align with secure default TLS verification and self-signed fallback recommendations.
 - Updated the README quick-start configuration to be directly pasteable into the MagicMirror modules array.
-- Updated ESLint to 10.8.1.
+- Updated ESLint to 10.10.0.
 - Updated CI workflows to use `actions/checkout@v7` and `actions/setup-node@v7`.
 
 ## [1.0.1] - 2026-05-10
