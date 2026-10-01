@@ -33,14 +33,20 @@ function normalizeString(value, fallback) {
   return text || fallback;
 }
 
+function buildHelperConfig(config, instanceId) {
+  return {
+    instanceId,
+    site: config.site,
+    refreshInterval: config.refreshInterval,
+    requestTimeout: config.requestTimeout,
+    debug: config.debug
+  };
+}
+
 Module.register("MMM-UniFiHotspotVouchers", {
   defaults: {
     title: "UniFi Hotspot Vouchers",
-    controllerUrl: "https://unifi.local",
-    username: "",
-    password: "",
     site: "default",
-    verifySSL: true,
     refreshInterval: 300000,
     requestTimeout: 10000,
     showInactive: false,
@@ -69,10 +75,7 @@ Module.register("MMM-UniFiHotspotVouchers", {
       loading: true
     };
 
-    this.sendSocketNotification("UNIFI_HOTSPOT_CONFIG", {
-      ...this.config,
-      instanceId: this.instanceId
-    });
+    this.sendSocketNotification("UNIFI_HOTSPOT_CONFIG", buildHelperConfig(this.config, this.instanceId));
   },
 
   getStyles() {
@@ -103,12 +106,17 @@ Module.register("MMM-UniFiHotspotVouchers", {
 
     if (notification === "UNIFI_HOTSPOT_ERROR") {
       if (normalizeBoolean(this.config.debug, false)) {
-        console.log("[MMM-UniFiHotspotVouchers] Received error notification:", data);
+        console.log("[MMM-UniFiHotspotVouchers] Received error notification:", data.code || "CONTROLLER_ERROR");
       }
+      const publicErrors = {
+        CONFIGURATION_ERROR: "UniFi voucher service is not configured.",
+        AUTHENTICATION_ERROR: "Unable to authenticate with the UniFi controller.",
+        CONTROLLER_ERROR: "Unable to load UniFi hotspot vouchers."
+      };
       this.dataState = {
         vouchers: [],
         fetchedAt: Date.now(),
-        error: data.error || "Unable to load UniFi hotspot vouchers.",
+        error: publicErrors[data.code] || publicErrors.CONTROLLER_ERROR,
         loading: false
       };
       this.updateDom(this.hasRenderedData ? 0 : this.config.animationSpeed || 1000);

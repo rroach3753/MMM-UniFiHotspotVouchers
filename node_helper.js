@@ -1,7 +1,14 @@
 const NodeHelper = require("node_helper");
-const http = require("node:http");
 const https = require("node:https");
 const { URL } = require("node:url");
+
+const MAX_TIMER_DELAY = 2147483647;
+const MIN_REFRESH_INTERVAL = 30000;
+const DEFAULT_REFRESH_INTERVAL = 300000;
+const MIN_REQUEST_TIMEOUT = 1000;
+const DEFAULT_REQUEST_TIMEOUT = 10000;
+const INSTANCE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
 function normalizeBoolean(value, fallback) {
   if (value === undefined || value === null) {
@@ -31,6 +38,15 @@ function normalizeNumber(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function normalizeBoundedInteger(value, fallback, minimum, maximum) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(maximum, Math.max(minimum, Math.trunc(parsed)));
+}
+
 function normalizeString(value, fallback) {
   const text = String(value == null ? "" : value).trim();
   return text || fallback;
@@ -42,17 +58,32 @@ function normalizeServerOrigin(value, variableName) {
   try {
     parsed = new URL(value);
   } catch {
-    throw new Error(`${variableName} must be a valid HTTP(S) origin.`);
+    throw Object.assign(new Error(`${variableName} must be a valid HTTPS origin.`), { code: "CONFIGURATION_ERROR" });
   }
 
-  if (!["http:", "https:"].includes(parsed.protocol) ||
+  if (parsed.protocol !== "https:" ||
       parsed.username || parsed.password ||
       (parsed.pathname && parsed.pathname !== "/") ||
       parsed.search || parsed.hash) {
-    throw new Error(`${variableName} must be an HTTP(S) origin without a path, query, or credentials.`);
+    throw Object.assign(
+      new Error(`${variableName} must be an HTTPS origin without a path, query, or credentials.`),
+      { code: "CONFIGURATION_ERROR" }
+    );
   }
 
   return parsed.origin;
+}
+
+function configurationError(message) {
+  return Object.assign(new Error(message), { code: "CONFIGURATION_ERROR" });
+}
+
+function authenticationError(message, statusCode) {
+  return Object.assign(new Error(message), { code: "AUTHENTICATION_ERROR", statusCode });
+}
+
+function controllerError(message, details) {
+  return Object.assign(new Error(message), { code: "CONTROLLER_ERROR", ...(details || {}) });
 }
 
 function parseFlexibleDate(value) {
@@ -88,10 +119,7 @@ function parseFlexibleDate(value) {
 
 module.exports = NodeHelper.create({
   start() {
-    this.config = null;
-    this.refreshTimer = null;
-    this.sessionCookies = [];
-    this.isInitializing = false;
+    this.instances = new Map();
   },
 
   socketNotificationReceived(notification, payload) {
@@ -99,110 +127,185 @@ module.exports = NodeHelper.create({
       return;
     }
 
-    if (this.isInitializing) {
-      this.log("Already initializing, skipping duplicate config notification");
+    const instanceId = normalizeString(payload && payload.instanceId, "");
+    if (!INSTANCE_ID_PATTERN.test(instanceId)) {
       return;
     }
 
-    try {
-      this.config = this.applyServerSecrets(payload || {});
-    } catch (error) {
-      this.config = {
-        instanceId: payload && payload.instanceId ? payload.instanceId : null
-      };
-      this.sendError(error.message);
+    const existingState = this.instances.get(instanceId);
+    if (existingState && existingState.isInitializing) {
+      this.log(existingState, "Already initializing, skipping duplicate config notification");
       return;
     }
-    this.initialize();
+
+    let config;
+    try {
+      config = this.buildServerConfig(payload || {});
+    } catch (error) {
+      this.logInternalError({ config: { debug: false }, instanceId }, error);
+      this.sendPublicError(instanceId, "CONFIGURATION_ERROR");
+      return;
+    }
+
+    if (existingState) {
+      this.stopTimer(existingState);
+    }
+
+    const state = {
+      instanceId,
+      config,
+      refreshTimer: null,
+      sessionCookies: [],
+      isInitializing: false
+    };
+    this.instances.set(instanceId, state);
+    this.initialize(state);
   },
 
-  applyServerSecrets(config) {
-    const serverUsername = normalizeString(process.env.UNIFI_HOTSPOT_USERNAME || process.env.UNIFI_USERNAME, "");
-    const serverPassword = normalizeString(process.env.UNIFI_HOTSPOT_PASSWORD || process.env.UNIFI_PASSWORD, "");
-    const serverApiKey = normalizeString(process.env.UNIFI_HOTSPOT_API_KEY || process.env.UNIFI_API_KEY, "");
-    const hasServerCredentials = Boolean(serverUsername || serverPassword || serverApiKey);
-
-    if (!hasServerCredentials) {
-      return { ...config };
+  buildServerConfig(rendererConfig) {
+    const instanceId = normalizeString(rendererConfig.instanceId, "");
+    if (!INSTANCE_ID_PATTERN.test(instanceId)) {
+      throw configurationError("Invalid module instanceId.");
     }
 
     const serverUrl = normalizeString(process.env.UNIFI_HOTSPOT_URL || process.env.UNIFI_URL, "");
+    const serverUsername = normalizeString(process.env.UNIFI_HOTSPOT_USERNAME || process.env.UNIFI_USERNAME, "");
+    const serverPassword = normalizeString(process.env.UNIFI_HOTSPOT_PASSWORD || process.env.UNIFI_PASSWORD, "");
+    const serverApiKey = normalizeString(process.env.UNIFI_HOTSPOT_API_KEY || process.env.UNIFI_API_KEY, "");
     if (!serverUrl) {
-      throw new Error("UNIFI_HOTSPOT_URL or UNIFI_URL is required when server-side UniFi credentials are configured.");
+      throw configurationError("UNIFI_HOTSPOT_URL or UNIFI_URL is required.");
+    }
+
+    if (Boolean(serverUsername) !== Boolean(serverPassword)) {
+      throw configurationError("Both server-side username and password are required for login authentication.");
+    }
+
+    if (!serverApiKey && !serverUsername) {
+      throw configurationError("Server-side UniFi credentials are required.");
+    }
+
+    const apiKeyHeader = normalizeString(process.env.UNIFI_HOTSPOT_API_KEY_HEADER, "X-API-Key");
+    if (!HEADER_NAME_PATTERN.test(apiKeyHeader)) {
+      throw configurationError("UNIFI_HOTSPOT_API_KEY_HEADER must be a valid HTTP header name.");
     }
 
     return {
-      ...config,
+      instanceId,
       controllerUrl: normalizeServerOrigin(serverUrl, "UNIFI_HOTSPOT_URL"),
+      site: normalizeString(rendererConfig.site, "default"),
       username: serverUsername,
       password: serverPassword,
-      apiKey: serverApiKey
+      apiKey: serverApiKey,
+      apiKeyHeader,
+      authMode: serverApiKey && serverUsername ? "auto" : (serverApiKey ? "apikey" : "login"),
+      verifySSL: normalizeBoolean(process.env.UNIFI_HOTSPOT_VERIFY_SSL, true),
+      refreshInterval: normalizeBoundedInteger(
+        rendererConfig.refreshInterval,
+        DEFAULT_REFRESH_INTERVAL,
+        MIN_REFRESH_INTERVAL,
+        MAX_TIMER_DELAY
+      ),
+      requestTimeout: normalizeBoundedInteger(
+        rendererConfig.requestTimeout,
+        DEFAULT_REQUEST_TIMEOUT,
+        MIN_REQUEST_TIMEOUT,
+        MAX_TIMER_DELAY
+      ),
+      debug: normalizeBoolean(rendererConfig.debug, false)
     };
   },
 
-  async initialize() {
-    this.stopTimer();
-    this.isInitializing = true;
+  async initialize(state) {
+    state.isInitializing = true;
 
     try {
-      await this.refreshData();
-      this.scheduleNextRefresh();
-    } catch (error) {
-      this.sendError(error.message);
-    } finally {
-      this.isInitializing = false;
-    }
-  },
-
-  stopTimer() {
-    if (this.refreshTimer) {
-      clearTimeout(this.refreshTimer);
-      this.refreshTimer = null;
-    }
-  },
-
-  scheduleNextRefresh() {
-    const interval = normalizeNumber(this.config.refreshInterval, 300000);
-    this.refreshTimer = setTimeout(async () => {
-      try {
-        await this.refreshData();
-      } catch (error) {
-        this.sendError(error.message);
+      await this.refreshData(state);
+      if (this.isCurrentState(state)) {
+        this.scheduleNextRefresh(state);
       }
-      this.scheduleNextRefresh();
-    }, Math.max(30000, interval));
-  },
-
-  log(message) {
-    if (normalizeBoolean(this.config.debug, false)) {
-      console.log(`[MMM-UniFiHotspotVouchers] ${message}`);
+    } catch (error) {
+      this.sendError(state, error);
+    } finally {
+      state.isInitializing = false;
     }
   },
 
-  sendError(message) {
-    this.log(`Error: ${message}`);
+  stopTimer(state) {
+    if (state.refreshTimer) {
+      clearTimeout(state.refreshTimer);
+      state.refreshTimer = null;
+    }
+  },
+
+  scheduleNextRefresh(state) {
+    const interval = normalizeBoundedInteger(
+      state.config.refreshInterval,
+      DEFAULT_REFRESH_INTERVAL,
+      MIN_REFRESH_INTERVAL,
+      MAX_TIMER_DELAY
+    );
+    state.refreshTimer = setTimeout(async () => {
+      try {
+        await this.refreshData(state);
+      } catch (error) {
+        this.sendError(state, error);
+      }
+      if (this.isCurrentState(state)) {
+        this.scheduleNextRefresh(state);
+      }
+    }, interval);
+  },
+
+  isCurrentState(state) {
+    return this.instances.get(state.instanceId) === state;
+  },
+
+  log(state, message) {
+    if (normalizeBoolean(state.config.debug, false)) {
+      console.log(`[MMM-UniFiHotspotVouchers:${state.instanceId}] ${message}`);
+    }
+  },
+
+  logInternalError(state, error) {
+    const status = error && Number.isInteger(error.statusCode) ? ` HTTP ${error.statusCode}` : "";
+    const code = error && error.code ? error.code : "CONTROLLER_ERROR";
+    this.log(state, `${code}${status}`);
+  },
+
+  sendPublicError(instanceId, code) {
     this.sendSocketNotification("UNIFI_HOTSPOT_ERROR", {
-      error: message,
-      instanceId: this.config && this.config.instanceId ? this.config.instanceId : null
+      code: ["CONFIGURATION_ERROR", "AUTHENTICATION_ERROR"].includes(code) ? code : "CONTROLLER_ERROR",
+      instanceId
     });
   },
 
-  sendData(vouchers) {
+  sendError(state, error) {
+    if (!this.isCurrentState(state)) {
+      return;
+    }
+
+    this.logInternalError(state, error);
+    this.sendPublicError(state.instanceId, error && error.code);
+  },
+
+  sendData(state, vouchers) {
     this.sendSocketNotification("UNIFI_HOTSPOT_DATA", {
       vouchers,
       fetchedAt: Date.now(),
-      instanceId: this.config && this.config.instanceId ? this.config.instanceId : null
+      instanceId: state.instanceId
     });
   },
 
-  async refreshData() {
-    const vouchers = await this.fetchVouchers();
-    this.sendData(vouchers);
+  async refreshData(state) {
+    const vouchers = await this.fetchVouchers(state);
+    if (this.isCurrentState(state)) {
+      this.sendData(state, vouchers);
+    }
   },
 
-  async fetchVouchers() {
-    const controllerUrl = normalizeString(this.config.controllerUrl, "https://unifi.local");
-    const site = normalizeString(this.config.site, "default");
+  async fetchVouchers(state) {
+    const controllerUrl = state.config.controllerUrl;
+    const site = normalizeString(state.config.site, "default");
 
     const endpoints = [
       `/proxy/network/api/s/${encodeURIComponent(site)}/rest/hotspot/voucher`,
@@ -211,77 +314,71 @@ module.exports = NodeHelper.create({
       `/api/s/${encodeURIComponent(site)}/stat/voucher`
     ];
 
-    const apiKey = normalizeString(this.config.apiKey, "");
-    const authMode = normalizeString(this.config.authMode, "auto").toLowerCase();
-    const username = normalizeString(this.config.username, "");
-    const password = normalizeString(this.config.password, "");
+    const apiKey = normalizeString(state.config.apiKey, "");
+    const authMode = state.config.authMode;
+    const username = normalizeString(state.config.username, "");
+    const password = normalizeString(state.config.password, "");
 
     if (authMode === "apikey" && !apiKey) {
-      throw new Error("Missing apiKey in MMM-UniFiHotspotVouchers config when authMode is set to apikey.");
+      throw configurationError("Missing server-side API key.");
     }
 
     if (authMode === "login" && (!username || !password)) {
-      throw new Error("Missing username or password in MMM-UniFiHotspotVouchers config when authMode is set to login.");
+      throw configurationError("Missing server-side username or password.");
     }
 
     if (apiKey && (authMode === "auto" || authMode === "apikey")) {
       try {
-        const vouchers = await this.fetchVoucherEndpoints(controllerUrl, endpoints, {
+        return await this.fetchVoucherEndpoints(state, controllerUrl, endpoints, {
           apiKey,
-          apiKeyHeader: normalizeString(this.config.apiKeyHeader, "X-API-Key")
+          apiKeyHeader: state.config.apiKeyHeader
         }, false);
-
-        if (vouchers.length) {
-          return vouchers;
-        }
       } catch (error) {
         if (authMode === "apikey") {
           throw error;
         }
       }
-
-      if (authMode === "apikey") {
-        throw new Error("API key access did not return any vouchers.");
-      }
     }
 
     if (!username || !password) {
-      if (apiKey) {
-        throw new Error("API key access did not return vouchers and username/password fallback is not configured.");
-      }
-
-      throw new Error("Missing username or password in MMM-UniFiHotspotVouchers config.");
+      throw authenticationError("No usable server-side authentication method.");
     }
 
-    await this.login(controllerUrl, username, password);
+    await this.login(state, controllerUrl, username, password);
 
-    return this.fetchVoucherEndpoints(controllerUrl, endpoints, {
-      cookies: this.sessionCookies
+    return this.fetchVoucherEndpoints(state, controllerUrl, endpoints, {
+      cookies: true
     }, false);
   },
 
-  async fetchVoucherEndpoints(controllerUrl, endpoints, authOptions, hasRetriedAuthFailure) {
-    const shouldRetryAfterAuthFailure = this.shouldRetryAfterAuthFailure(authOptions) && !hasRetriedAuthFailure;
+  async fetchVoucherEndpoints(state, controllerUrl, endpoints, authOptions, hasRetriedAuthFailure) {
+    const shouldRetryAfterAuthFailure = this.shouldRetryAfterAuthFailure(state, authOptions) && !hasRetriedAuthFailure;
     let lastError = null;
+    let hadSuccessfulResponse = false;
 
     for (const endpoint of endpoints) {
       try {
-        this.log(`Attempting endpoint: ${endpoint}`);
-        const response = await this.requestJson("GET", controllerUrl, endpoint, null, null, authOptions);
+        this.log(state, `Attempting endpoint: ${endpoint}`);
+        const response = await this.requestJson(state, "GET", controllerUrl, endpoint, null, null, authOptions);
+        hadSuccessfulResponse = true;
         const records = this.extractVoucherRecords(response);
         if (records.length) {
-          this.log(`Successfully retrieved ${records.length} voucher records from ${endpoint}`);
+          this.log(state, `Successfully retrieved ${records.length} voucher records from ${endpoint}`);
           return records.map((record) => this.normalizeVoucher(record)).filter(Boolean);
         }
       } catch (error) {
-        this.log(`Endpoint ${endpoint} failed: ${error.message}`);
+        this.logInternalError(state, error);
         if (shouldRetryAfterAuthFailure && this.isAuthFailure(error)) {
-          this.log("Auth failure detected, attempting re-authentication");
-          return this.retryVoucherFetchAfterReauth(controllerUrl, endpoints, authOptions);
+          this.log(state, "Auth failure detected, attempting re-authentication");
+          return this.retryVoucherFetchAfterReauth(state, controllerUrl, endpoints, authOptions);
         }
 
         lastError = error;
       }
+    }
+
+    if (hadSuccessfulResponse) {
+      return [];
     }
 
     if (lastError) {
@@ -291,8 +388,8 @@ module.exports = NodeHelper.create({
     return [];
   },
 
-  shouldRetryAfterAuthFailure(authOptions) {
-    return Boolean(authOptions && authOptions.cookies && this.config.username && this.config.password);
+  shouldRetryAfterAuthFailure(state, authOptions) {
+    return Boolean(authOptions && authOptions.cookies && state.config.username && state.config.password);
   },
 
   isAuthFailure(error) {
@@ -300,18 +397,23 @@ module.exports = NodeHelper.create({
     return statusCode === 401 || statusCode === 403;
   },
 
-  async retryVoucherFetchAfterReauth(controllerUrl, endpoints, authOptions) {
-    this.sessionCookies = [];
-    await this.login(controllerUrl, normalizeString(this.config.username, ""), normalizeString(this.config.password, ""));
-    return this.fetchVoucherEndpoints(controllerUrl, endpoints, {
-      cookies: this.sessionCookies,
+  async retryVoucherFetchAfterReauth(state, controllerUrl, endpoints, authOptions) {
+    state.sessionCookies = [];
+    await this.login(
+      state,
+      controllerUrl,
+      normalizeString(state.config.username, ""),
+      normalizeString(state.config.password, "")
+    );
+    return this.fetchVoucherEndpoints(state, controllerUrl, endpoints, {
+      cookies: true,
       apiKey: authOptions && authOptions.apiKey,
       apiKeyHeader: authOptions && authOptions.apiKeyHeader
     }, true);
   },
 
-  async login(controllerUrl, username, password) {
-    const response = await this.requestJson("POST", controllerUrl, "/api/auth/login", {
+  async login(state, controllerUrl, username, password) {
+    const response = await this.requestJson(state, "POST", controllerUrl, "/api/auth/login", {
       username,
       password
     }, {
@@ -319,25 +421,28 @@ module.exports = NodeHelper.create({
     }, { cookies: true });
 
     const cookies = Array.isArray(response.headers["set-cookie"]) ? response.headers["set-cookie"] : [];
-    this.sessionCookies = cookies.map((cookie) => cookie.split(";")[0]).filter(Boolean);
+    state.sessionCookies = cookies.map((cookie) => cookie.split(";")[0]).filter(Boolean);
 
-    if (!this.sessionCookies.length) {
-      throw new Error("UniFi login did not return a session cookie.");
+    if (!state.sessionCookies.length) {
+      throw authenticationError("UniFi login did not return a session cookie.");
     }
 
-    this.log("Successfully authenticated with UniFi controller");
+    this.log(state, "Successfully authenticated with UniFi controller");
   },
 
-  async requestJson(method, controllerUrl, path, body, extraHeaders, authOptions) {
+  async requestJson(state, method, controllerUrl, path, body, extraHeaders, authOptions) {
     const url = new URL(path, controllerUrl);
-    const transport = url.protocol === "http:" ? http : https;
     const requestBody = body ? JSON.stringify(body) : "";
     const headers = Object.assign({}, extraHeaders || {});
 
     const options = authOptions || {};
+    const hasSecrets = Boolean(requestBody || options.cookies || options.apiKey);
+    if (hasSecrets && url.protocol !== "https:") {
+      throw configurationError("Authenticated UniFi requests require HTTPS.");
+    }
 
-    if (options.cookies && this.sessionCookies.length) {
-      headers.Cookie = this.sessionCookies.join("; ");
+    if (options.cookies && state.sessionCookies.length) {
+      headers.Cookie = state.sessionCookies.join("; ");
     }
 
     if (options.apiKey) {
@@ -353,10 +458,10 @@ module.exports = NodeHelper.create({
     }
 
     return new Promise((resolve, reject) => {
-      const request = transport.request(url, {
+      const request = https.request(url, {
         method,
         headers,
-        rejectUnauthorized: normalizeBoolean(this.config.verifySSL, true)
+        rejectUnauthorized: normalizeBoolean(state.config.verifySSL, true)
       }, (response) => {
         const chunks = [];
         let bodyLength = 0;
@@ -381,10 +486,12 @@ module.exports = NodeHelper.create({
           const raw = Buffer.concat(chunks).toString();
 
           if (response.statusCode < 200 || response.statusCode >= 300) {
-            const error = new Error(`HTTP ${response.statusCode}: ${raw.slice(0, 200)}`);
-            error.statusCode = response.statusCode;
-            error.responseBody = raw;
-            reject(error);
+            const statusCode = response.statusCode;
+            reject(
+              statusCode === 401 || statusCode === 403
+                ? authenticationError("UniFi authentication was rejected.", statusCode)
+                : controllerError("UniFi controller returned an unsuccessful response.", { statusCode })
+            );
             return;
           }
 
@@ -395,20 +502,25 @@ module.exports = NodeHelper.create({
 
           try {
             resolve({ headers: response.headers, json: JSON.parse(raw) });
-          } catch (error) {
-            reject(new Error(`Failed to parse UniFi response: ${error.message}`));
+          } catch {
+            reject(controllerError("UniFi controller returned invalid JSON."));
           }
         });
       });
 
-      const timeoutMs = normalizeNumber(this.config.requestTimeout, 10000);
+      const timeoutMs = normalizeBoundedInteger(
+        state.config.requestTimeout,
+        DEFAULT_REQUEST_TIMEOUT,
+        MIN_REQUEST_TIMEOUT,
+        MAX_TIMER_DELAY
+      );
       request.setTimeout(timeoutMs);
       request.on("timeout", () => {
         request.destroy();
-        reject(new Error(`HTTP request timeout after ${timeoutMs}ms`));
+        reject(controllerError("UniFi controller request timed out."));
       });
 
-      request.on("error", (error) => reject(error));
+      request.on("error", () => reject(controllerError("UniFi controller request failed.")));
 
       if (requestBody) {
         request.write(requestBody);

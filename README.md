@@ -20,7 +20,8 @@ A [MagicMirror²](https://github.com/MagicMirrorOrg/MagicMirror)  module for dis
 
 1. A working MagicMirror² installation.
 2. A UniFi OS console such as a Cloud Key, UDM, or similar device.
-3. A local UniFi OS username and password with permission to read Network data.
+3. A UniFi OS API key or local username/password with permission to read Network data.
+4. An HTTPS URL for the UniFi OS console.
 
 ## Installation
 
@@ -75,7 +76,23 @@ mmpm update MMM-UniFiHotspotVouchers
 
 ### Basic Config Example (Quick Start)
 
-Add this module block to your MagicMirror `config/config.js` file to get started:
+Configure the trusted controller URL and credentials in the environment of the
+MagicMirror server process:
+
+```bash
+export UNIFI_HOTSPOT_URL="https://unifi.local"
+export UNIFI_HOTSPOT_API_KEY="your_api_key"
+```
+
+For local-login authentication, set both of these instead of (or in addition
+to) the API key:
+
+```bash
+export UNIFI_HOTSPOT_USERNAME="your_username"
+export UNIFI_HOTSPOT_PASSWORD="your_password"
+```
+
+Then add this module block to your MagicMirror `config/config.js` file:
 
 1. Install the module in your `MagicMirror/modules` folder.
 2. Add this module block to the modules array in `config/config.js`.
@@ -85,15 +102,13 @@ Add this module block to your MagicMirror `config/config.js` file to get started
 {
   module: "MMM-UniFiHotspotVouchers",
   position: "top_right",
-  config: {
-    controllerUrl: "https://unifi.local",
-    username: "admin",
-    password: "YOUR_PASSWORD"
-  }
+  config: {}
 },
 ```
 
-Then restart MagicMirror. You can switch to API-key authentication later by setting `apiKey` and `authMode: "apikey"`.
+Restart MagicMirror after setting the environment variables. Connection and
+authentication settings are accepted only from the server environment and are
+never sent through the browser renderer.
 
 ## Example Config
 
@@ -105,14 +120,7 @@ Add this to your `config/config.js` file:
   position: "top_right",
   config: {
     title: "Hotspot Vouchers",
-    controllerUrl: "https://unifi.local",
-    username: "admin",
-    password: "YOUR_PASSWORD",
-    apiKey: "",
-    apiKeyHeader: "X-API-Key",
-    authMode: "auto",
     site: "default",
-    verifySSL: true,
     refreshInterval: 300000,
     requestTimeout: 10000,
     showInactive: false,
@@ -133,25 +141,15 @@ Add this to your `config/config.js` file:
 
 ## Configuration Options
 
-You need either local username/password credentials or an API key path:
-
-- `username` and `password` are required when using local login.
-- `apiKey` is required when using API-key mode.
-
-All other settings are optional and fall back to the defaults shown below.
+Server connection and authentication values must be provided using the
+environment variables in the next section. Renderer options are optional and
+fall back to the defaults shown below.
 
 | Option | Type | Required? | Default | What it does |
 | --- | --- | --- | --- | --- |
 | `title` | String | No | `UniFi Hotspot Vouchers` | Title shown above the voucher table. |
-| `controllerUrl` | String | No | `https://unifi.local` | Base URL for the UniFi OS console. Use your Cloud Key IP or hostname. |
-| `username` | String | No | `""` | UniFi OS username used for login. Required when `authMode` is `login` or when `authMode` is `auto` and API-key access is not available. |
-| `password` | String | No | `""` | UniFi OS password used for login. Required when `authMode` is `login` or when `authMode` is `auto` and API-key access is not available. |
-| `apiKey` | String | No | `""` | Optional API key used when the console exposes voucher endpoints through a UniFi API path. Required when `authMode` is `apikey`. |
-| `apiKeyHeader` | String | No | `X-API-Key` | Header name used when sending the API key. |
-| `authMode` | String | No | `auto` | Authentication mode: `auto`, `apikey`, or `login`. Auto tries API key first when present, then falls back to login if credentials are configured. |
 | `site` | String | No | `default` | Network application site name. Most single-site deployments use `default`. |
-| `verifySSL` | Boolean | No | `true` | Enforces TLS certificate validation by default. Set `false` only for trusted local self-signed environments. |
-| `refreshInterval` | Number | No | `300000` | How often the module refreshes voucher data, in milliseconds. |
+| `refreshInterval` | Number | No | `300000` | Refresh interval in milliseconds, clamped from 30000 through 2147483647. |
 | `showInactive` | Boolean | No | `false` | Shows inactive, disabled, and used vouchers instead of only active ones. |
 | `showSummary` | Boolean | No | `true` | Shows the summary chips for active and total vouchers. |
 | `showNotes` | Boolean | No | `true` | Shows the voucher note/label column. |
@@ -163,7 +161,7 @@ All other settings are optional and fall back to the defaults shown below.
 | `compact` | Boolean | No | `false` | Uses tighter spacing and smaller table padding. |
 | `showBorders` | Boolean | No | `true` | Shows or hides the border and shadow around the voucher card. |
 | `showBackground` | Boolean | No | `true` | Shows or hides the translucent card background behind the voucher table. |
-| `requestTimeout` | Number | No | `10000` | HTTP request timeout in milliseconds. Prevents hangs if controller is unreachable. |
+| `requestTimeout` | Number | No | `10000` | Request timeout in milliseconds, clamped from 1000 through 2147483647. |
 | `debug` | Boolean | No | `false` | Enable debug logging to browser console and server logs for troubleshooting. |
 | `emptyMessage` | String | No | `No hotspot vouchers found.` | Message shown when no vouchers match the current filter. |
 | `loadingMessage` | String | No | `Loading UniFi vouchers...` | Message shown while the first fetch is in progress. |
@@ -172,60 +170,88 @@ All other settings are optional and fall back to the defaults shown below.
 
 This module communicates with your UniFi OS console, which requires proper security practices:
 
+### Server Environment Configuration
+
+| Variable | Required? | What it does |
+| --- | --- | --- |
+| `UNIFI_HOTSPOT_URL` | Yes | Trusted HTTPS controller origin. Paths, queries, fragments, and embedded credentials are rejected. |
+| `UNIFI_HOTSPOT_API_KEY` | Conditional | Server-only API key. Use this, username/password, or both. |
+| `UNIFI_HOTSPOT_USERNAME` | Conditional | Server-only local-login username. Must be paired with the password. |
+| `UNIFI_HOTSPOT_PASSWORD` | Conditional | Server-only local-login password. Must be paired with the username. |
+| `UNIFI_HOTSPOT_API_KEY_HEADER` | No | API-key header name. Defaults to `X-API-Key`. |
+| `UNIFI_HOTSPOT_VERIFY_SSL` | No | Certificate verification setting. Defaults to `true`; set `false` only for a trusted self-signed controller. |
+
+The shared fallback names `UNIFI_URL`, `UNIFI_API_KEY`, `UNIFI_USERNAME`, and
+`UNIFI_PASSWORD` remain supported. Authentication mode is inferred: an API key
+is tried directly, username/password uses login, and configuring both allows
+login fallback only when API-key requests fail. A successful response with no
+vouchers does not trigger fallback.
+
 ### SSL/TLS Certificate Verification
 
-- **Default Behavior:** `verifySSL: true` (TLS certificate verification enabled by default)
-- **Recommended:** Keep `verifySSL: true` whenever possible to prevent man-in-the-middle attacks.
-- **Self-Signed Certificates:** In trusted local-only environments, you can set `verifySSL: false` if cert trust cannot be configured.
-- **Production / Untrusted Networks:** Use trusted certificates and keep `verifySSL: true`.
+- Authenticated controller requests require HTTPS; plaintext HTTP is rejected.
+- TLS certificate verification is enabled by default.
+- Prefer installing the controller CA in the MagicMirror host trust store.
+- For a trusted local self-signed controller only, set
+  `UNIFI_HOTSPOT_VERIFY_SSL=false`.
 
 ### Credentials Management
 
-The module stores UniFi credentials in your `config/config.js` file. **Keep this file secure:**
-
-1. **File Permissions:** Restrict read access to your config file:
-
-   ```bash
-   chmod 600 config/config.js
-   ```
-
-2. **Backup Security:** Ensure backups of your `config.js` are stored securely and not shared
-
-3. **Environment Variables (Recommended):** Set module-specific environment variables for the MagicMirror process and omit credentials from `config.js`:
-
-   ```bash
-    export UNIFI_HOTSPOT_API_KEY="your_api_key"
-    export UNIFI_HOTSPOT_USERNAME="your_username"
-    export UNIFI_HOTSPOT_PASSWORD="your_password"
-    export UNIFI_HOTSPOT_URL="https://unifi.local"
-   ```
-
-    The trusted server URL is required when server-side credentials are configured and must be an HTTP(S) origin without a path, query, or embedded credentials. These values take precedence over renderer configuration. `UNIFI_URL`, `UNIFI_API_KEY`, `UNIFI_USERNAME`, and `UNIFI_PASSWORD` are also supported as shared fallbacks.
-
-4. **API Key Alternative:** If available, use API keys instead of username/password:
+- Keep environment/service files containing credentials readable only by the
+  MagicMirror service account.
+- Ensure backups and process-manager configuration containing credentials are
+  stored securely.
+- If available, prefer API keys over username/password:
    - API keys provide more granular permission control
    - Easier to rotate without changing user accounts
-   - Set `authMode: "apikey"` in your config
 
 ### Network Security
 
-- The module connects to your UniFi OS console over HTTPS (default)
-- HTTP connections are possible but not recommended (use HTTPS)
+- The module connects to a single server-controlled canonical HTTPS origin.
+- Renderer configuration cannot change the controller target.
 - Keep your UniFi controller and MagicMirror on a secure, private network
 - Do not expose your UniFi controller to the public internet without proper VPN/firewall protection
 
 ### Sensitive Data Display
 
 - Set `maskVoucherCode: true` if you want to hide full voucher codes on the physical mirror display
-- The module only displays what you configure—no credentials are displayed on screen
-- Browser console and server logs may contain debugging information if `debug: true`; disable in production
+- Credentials are never included in renderer socket configuration or displayed
+  on screen.
+- Controller response bodies and internal error details are not sent to the
+  renderer.
+- Debug logging reports stable error categories and HTTP status codes, not
+  controller response bodies or authentication material.
+
+## Migration from Renderer Credentials
+
+Versions that accepted `controllerUrl`, `username`, `password`, `apiKey`,
+`apiKeyHeader`, `authMode`, or `verifySSL` in `config/config.js` exposed those
+values to the renderer process. These keys are now ignored by the helper.
+
+Before restarting after an upgrade:
+
+1. Move `controllerUrl` to `UNIFI_HOTSPOT_URL`. It must use `https://`.
+2. Move `apiKey` to `UNIFI_HOTSPOT_API_KEY`, or move `username` and `password`
+   to their matching `UNIFI_HOTSPOT_*` variables.
+3. If needed, move `apiKeyHeader` to `UNIFI_HOTSPOT_API_KEY_HEADER`.
+4. If a trusted self-signed certificate requires it, replace
+   `verifySSL: false` with `UNIFI_HOTSPOT_VERIFY_SSL=false`.
+5. Remove all connection and authentication keys from the module block.
+6. Restart the complete MagicMirror server process so it receives the new
+   environment.
+
+The helper fails closed with a generic configuration error if the trusted HTTPS
+origin or server-side credentials are missing.
 
 ## Notes
 
 - The module first tries UniFi OS proxy endpoints such as `/proxy/network/api/s/default/rest/hotspot/voucher`.
 - If that fails, it falls back to the older Network app endpoints such as `/api/s/default/stat/voucher`.
-- If you provide `apiKey`, the module will try API-key auth first when `authMode` is `auto` or `apikey`.
-- If your Cloud Key uses a self-signed certificate and trust cannot be configured in Node.js, set `verifySSL: false` as a local-network fallback.
+- If both server-side authentication methods are configured, the module tries
+  the API key first and uses login only after an API request failure.
+- If your Cloud Key uses a self-signed certificate and trust cannot be
+  configured in Node.js, set `UNIFI_HOTSPOT_VERIFY_SSL=false` only on a trusted
+  local network.
 - If you want to display expired vouchers for audit purposes, set `showInactive: true`.
 - If you want to avoid exposing full voucher codes on the mirror, set `maskVoucherCode: true`.
 - If you want a cleaner mirror look, set `showBorders: false`, `showBackground: false`, or both.
@@ -239,17 +265,22 @@ The module stores UniFi credentials in your `config/config.js` file. **Keep this
 
 ## Troubleshooting
 
-- **Authentication errors:** Confirm the username and password can log into the UniFi OS console directly.
-- **API key issues:** Confirm the key belongs to an account that can read the Network application and that `authMode` is set correctly.
+- **Configuration errors:** Confirm `UNIFI_HOTSPOT_URL` is an HTTPS origin and
+  that a complete server-side authentication method is configured.
+- **Authentication errors:** Confirm the environment username/password can log
+  into UniFi OS or that the API key can read Network data.
+- **API key issues:** Confirm the key belongs to an account that can read the
+  Network application.
 - **Intermittent 403 Forbidden errors:** The module should now re-authenticate once automatically; if it persists, verify the UniFi user or API key still has permission to read voucher data.
 - **No vouchers displayed:** Confirm the Network application site name and that hotspot vouchers exist for that site.
-- **Certificate/SSL errors:** Prefer fixing the certificate chain and keeping `verifySSL: true`; use `verifySSL: false` only for trusted local self-signed setups.
+- **Certificate/SSL errors:** Prefer fixing the certificate chain; use
+  `UNIFI_HOTSPOT_VERIFY_SSL=false` only for trusted local self-signed setups.
 - **Module shows "Loading" indefinitely or hangs:**
   - The module will timeout after `requestTimeout` milliseconds (default 10000ms). If the controller is slow, increase this value.
-  - Check that the `controllerUrl` is correct and the controller is reachable on the network.
-  - Enable `debug: true` in config to see detailed logging in the browser console (F12) and server logs to identify where it's getting stuck.
+  - Check that `UNIFI_HOTSPOT_URL` is correct and reachable on the network.
+  - Enable `debug: true` to see sanitized endpoint and error-category logging.
 - **Need to troubleshoot authentication or API calls:**
-  - Enable `debug: true` in your config to log detailed information about endpoint attempts, authentication success/failure, and number of vouchers retrieved.
-  - Open the browser console (F12) to see real-time debug messages.
-  - Check the MagicMirror server logs for additional backend debugging output.
+  - Enable `debug: true` to log endpoint attempts, stable error categories, and
+    voucher counts without exposing controller response bodies.
+  - Check the MagicMirror server logs for sanitized backend diagnostics.
   - Verify the UniFi controller is responding with `curl -k https://your-controller-url/api/s/default/stat/voucher` (replace with your actual URL and site).
