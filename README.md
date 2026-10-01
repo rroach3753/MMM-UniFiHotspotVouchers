@@ -197,9 +197,10 @@ The module stores UniFi credentials in your `config/config.js` file. **Keep this
     export UNIFI_HOTSPOT_API_KEY="your_api_key"
     export UNIFI_HOTSPOT_USERNAME="your_username"
     export UNIFI_HOTSPOT_PASSWORD="your_password"
+    export UNIFI_HOTSPOT_URL="https://unifi.local"
    ```
 
-    These values take precedence over renderer configuration. `UNIFI_API_KEY`, `UNIFI_USERNAME`, and `UNIFI_PASSWORD` are also supported as shared fallbacks.
+    The trusted server URL is required when server-side credentials are configured and must be an HTTP(S) origin without a path, query, or embedded credentials. These values take precedence over renderer configuration. `UNIFI_URL`, `UNIFI_API_KEY`, `UNIFI_USERNAME`, and `UNIFI_PASSWORD` are also supported as shared fallbacks.
 
 4. **API Key Alternative:** If available, use API keys instead of username/password:
    - API keys provide more granular permission control

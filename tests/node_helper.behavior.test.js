@@ -77,12 +77,15 @@ test("server UniFi credentials take precedence over renderer config", () => {
   const previousUsername = process.env.UNIFI_HOTSPOT_USERNAME;
   const previousPassword = process.env.UNIFI_HOTSPOT_PASSWORD;
   const previousApiKey = process.env.UNIFI_HOTSPOT_API_KEY;
+  const previousUrl = process.env.UNIFI_HOTSPOT_URL;
   process.env.UNIFI_HOTSPOT_USERNAME = "server-user";
   process.env.UNIFI_HOTSPOT_PASSWORD = "server-password";
   process.env.UNIFI_HOTSPOT_API_KEY = "server-key";
+  process.env.UNIFI_HOTSPOT_URL = "https://trusted.example:8443";
 
   try {
     const config = helper.applyServerSecrets({
+      controllerUrl: "https://attacker.example",
       username: "renderer-user",
       password: "renderer-password",
       apiKey: "renderer-key"
@@ -90,11 +93,42 @@ test("server UniFi credentials take precedence over renderer config", () => {
     assert.equal(config.username, "server-user");
     assert.equal(config.password, "server-password");
     assert.equal(config.apiKey, "server-key");
+    assert.equal(config.controllerUrl, "https://trusted.example:8443");
   } finally {
     const values = {
       UNIFI_HOTSPOT_USERNAME: previousUsername,
       UNIFI_HOTSPOT_PASSWORD: previousPassword,
-      UNIFI_HOTSPOT_API_KEY: previousApiKey
+      UNIFI_HOTSPOT_API_KEY: previousApiKey,
+      UNIFI_HOTSPOT_URL: previousUrl
+    };
+    Object.entries(values).forEach(([name, value]) => {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    });
+  }
+});
+
+test("server UniFi credentials require a trusted server URL", () => {
+  const previousUsername = process.env.UNIFI_HOTSPOT_USERNAME;
+  const previousUrl = process.env.UNIFI_HOTSPOT_URL;
+  const previousSharedUrl = process.env.UNIFI_URL;
+  process.env.UNIFI_HOTSPOT_USERNAME = "server-user";
+  delete process.env.UNIFI_HOTSPOT_URL;
+  delete process.env.UNIFI_URL;
+
+  try {
+    assert.throws(
+      () => helper.applyServerSecrets({ controllerUrl: "https://attacker.example" }),
+      /UNIFI_HOTSPOT_URL or UNIFI_URL is required/
+    );
+  } finally {
+    const values = {
+      UNIFI_HOTSPOT_USERNAME: previousUsername,
+      UNIFI_HOTSPOT_URL: previousUrl,
+      UNIFI_URL: previousSharedUrl
     };
     Object.entries(values).forEach(([name, value]) => {
       if (value === undefined) {

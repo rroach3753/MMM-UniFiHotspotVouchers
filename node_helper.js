@@ -36,6 +36,25 @@ function normalizeString(value, fallback) {
   return text || fallback;
 }
 
+function normalizeServerOrigin(value, variableName) {
+  let parsed;
+
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${variableName} must be a valid HTTP(S) origin.`);
+  }
+
+  if (!["http:", "https:"].includes(parsed.protocol) ||
+      parsed.username || parsed.password ||
+      (parsed.pathname && parsed.pathname !== "/") ||
+      parsed.search || parsed.hash) {
+    throw new Error(`${variableName} must be an HTTP(S) origin without a path, query, or credentials.`);
+  }
+
+  return parsed.origin;
+}
+
 function parseFlexibleDate(value) {
   if (value == null || value === "") {
     return null;
@@ -85,16 +104,39 @@ module.exports = NodeHelper.create({
       return;
     }
 
-    this.config = this.applyServerSecrets(payload || {});
+    try {
+      this.config = this.applyServerSecrets(payload || {});
+    } catch (error) {
+      this.config = {
+        instanceId: payload && payload.instanceId ? payload.instanceId : null
+      };
+      this.sendError(error.message);
+      return;
+    }
     this.initialize();
   },
 
   applyServerSecrets(config) {
+    const serverUsername = normalizeString(process.env.UNIFI_HOTSPOT_USERNAME || process.env.UNIFI_USERNAME, "");
+    const serverPassword = normalizeString(process.env.UNIFI_HOTSPOT_PASSWORD || process.env.UNIFI_PASSWORD, "");
+    const serverApiKey = normalizeString(process.env.UNIFI_HOTSPOT_API_KEY || process.env.UNIFI_API_KEY, "");
+    const hasServerCredentials = Boolean(serverUsername || serverPassword || serverApiKey);
+
+    if (!hasServerCredentials) {
+      return { ...config };
+    }
+
+    const serverUrl = normalizeString(process.env.UNIFI_HOTSPOT_URL || process.env.UNIFI_URL, "");
+    if (!serverUrl) {
+      throw new Error("UNIFI_HOTSPOT_URL or UNIFI_URL is required when server-side UniFi credentials are configured.");
+    }
+
     return {
       ...config,
-      username: process.env.UNIFI_HOTSPOT_USERNAME || process.env.UNIFI_USERNAME || config.username,
-      password: process.env.UNIFI_HOTSPOT_PASSWORD || process.env.UNIFI_PASSWORD || config.password,
-      apiKey: process.env.UNIFI_HOTSPOT_API_KEY || process.env.UNIFI_API_KEY || config.apiKey
+      controllerUrl: normalizeServerOrigin(serverUrl, "UNIFI_HOTSPOT_URL"),
+      username: serverUsername,
+      password: serverPassword,
+      apiKey: serverApiKey
     };
   },
 
