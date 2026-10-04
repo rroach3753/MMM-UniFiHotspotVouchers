@@ -9,6 +9,7 @@ const MIN_REQUEST_TIMEOUT = 1000;
 const DEFAULT_REQUEST_TIMEOUT = 10000;
 const INSTANCE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+const VOUCHER_CODE_POLICIES = new Set(["hidden", "masked", "full"]);
 
 function normalizeBoolean(value, fallback) {
   if (value === undefined || value === null) {
@@ -76,6 +77,40 @@ function normalizeServerOrigin(value, variableName) {
 
 function configurationError(message) {
   return Object.assign(new Error(message), { code: "CONFIGURATION_ERROR" });
+}
+
+function parseInstanceSites(value) {
+  const text = normalizeString(value, "");
+  if (!text) {
+    return null;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw configurationError("UNIFI_HOTSPOT_INSTANCE_SITES must be a JSON object.");
+  }
+
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+    throw configurationError("UNIFI_HOTSPOT_INSTANCE_SITES must be a JSON object.");
+  }
+
+  const entries = Object.entries(parsed);
+  if (!entries.length) {
+    throw configurationError("UNIFI_HOTSPOT_INSTANCE_SITES must define at least one instance.");
+  }
+
+  const instanceSites = new Map();
+  for (const [instanceId, siteValue] of entries) {
+    const site = normalizeString(siteValue, "");
+    if (!INSTANCE_ID_PATTERN.test(instanceId) || !site) {
+      throw configurationError("UNIFI_HOTSPOT_INSTANCE_SITES contains an invalid instance or site.");
+    }
+    instanceSites.set(instanceId, site);
+  }
+
+  return instanceSites;
 }
 
 function authenticationError(message, statusCode) {
@@ -189,10 +224,28 @@ module.exports = NodeHelper.create({
       throw configurationError("UNIFI_HOTSPOT_API_KEY_HEADER must be a valid HTTP header name.");
     }
 
+    const instanceSites = parseInstanceSites(process.env.UNIFI_HOTSPOT_INSTANCE_SITES);
+    if (instanceSites && !instanceSites.has(instanceId)) {
+      throw configurationError("The module instance is not permitted by the server-side site policy.");
+    }
+
+    const voucherCodePolicy = normalizeString(
+      process.env.UNIFI_HOTSPOT_VOUCHER_CODE_POLICY,
+      "hidden"
+    ).toLowerCase();
+    if (!VOUCHER_CODE_POLICIES.has(voucherCodePolicy)) {
+      throw configurationError(
+        "UNIFI_HOTSPOT_VOUCHER_CODE_POLICY must be hidden, masked, or full."
+      );
+    }
+
     return {
       instanceId,
       controllerUrl: normalizeServerOrigin(serverUrl, "UNIFI_HOTSPOT_URL"),
-      site: normalizeString(rendererConfig.site, "default"),
+      site: instanceSites
+        ? instanceSites.get(instanceId)
+        : normalizeString(process.env.UNIFI_HOTSPOT_SITE, "default"),
+      voucherCodePolicy,
       username: serverUsername,
       password: serverPassword,
       apiKey: serverApiKey,
@@ -290,10 +343,30 @@ module.exports = NodeHelper.create({
 
   sendData(state, vouchers) {
     this.sendSocketNotification("UNIFI_HOTSPOT_DATA", {
-      vouchers,
+      vouchers: vouchers.map((voucher) => this.applyVoucherCodePolicy(voucher, state.config.voucherCodePolicy)),
+      voucherCodePolicy: state.config.voucherCodePolicy,
       fetchedAt: Date.now(),
       instanceId: state.instanceId
     });
+  },
+
+  applyVoucherCodePolicy(voucher, policy) {
+    const { code, ...publicVoucher } = voucher;
+
+    if (policy === "full") {
+      return { ...publicVoucher, code };
+    }
+
+    if (policy === "masked") {
+      const raw = String(code || "").trim();
+      const suffix = raw.slice(-4);
+      return {
+        ...publicVoucher,
+        code: raw.length > 4 ? `${"•".repeat(raw.length - 4)}${suffix}` : suffix
+      };
+    }
+
+    return publicVoucher;
   },
 
   async refreshData(state) {

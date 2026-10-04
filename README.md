@@ -82,6 +82,8 @@ MagicMirror server process:
 ```bash
 export UNIFI_HOTSPOT_URL="https://unifi.local"
 export UNIFI_HOTSPOT_API_KEY="your_api_key"
+export UNIFI_HOTSPOT_SITE="default"
+export UNIFI_HOTSPOT_VOUCHER_CODE_POLICY="hidden"
 ```
 
 For local-login authentication, set both of these instead of (or in addition
@@ -120,7 +122,6 @@ Add this to your `config/config.js` file:
   position: "top_right",
   config: {
     title: "Hotspot Vouchers",
-    site: "default",
     refreshInterval: 300000,
     requestTimeout: 10000,
     showInactive: false,
@@ -148,14 +149,13 @@ fall back to the defaults shown below.
 | Option | Type | Required? | Default | What it does |
 | --- | --- | --- | --- | --- |
 | `title` | String | No | `UniFi Hotspot Vouchers` | Title shown above the voucher table. |
-| `site` | String | No | `default` | Network application site name. Most single-site deployments use `default`. |
 | `refreshInterval` | Number | No | `300000` | Refresh interval in milliseconds, clamped from 30000 through 2147483647. |
 | `showInactive` | Boolean | No | `false` | Shows inactive, disabled, and used vouchers instead of only active ones. |
 | `showSummary` | Boolean | No | `true` | Shows the summary chips for active and total vouchers. |
 | `showNotes` | Boolean | No | `true` | Shows the voucher note/label column. |
 | `showCreatedAt` | Boolean | No | `false` | Shows the voucher creation timestamp column. |
-| `showVoucherCode` | Boolean | No | `true` | Shows the voucher code column. |
-| `maskVoucherCode` | Boolean | No | `false` | Masks voucher codes in the table instead of showing the full code. |
+| `showVoucherCode` | Boolean | No | `true` | Shows the voucher code column only when the server disclosure policy permits code data. Cannot override a server `hidden` policy. |
+| `maskVoucherCode` | Boolean | No | `false` | Further masks full codes in the table. Cannot upgrade server-hidden or server-masked data. |
 | `sortBy` | String | No | `created` | Sort order for vouchers. Use `created` or `code`. |
 | `maxRows` | Number | No | `12` | Maximum number of voucher rows shown. |
 | `compact` | Boolean | No | `false` | Uses tighter spacing and smaller table padding. |
@@ -180,6 +180,9 @@ This module communicates with your UniFi OS console, which requires proper secur
 | `UNIFI_HOTSPOT_PASSWORD` | Conditional | Server-only local-login password. Must be paired with the username. |
 | `UNIFI_HOTSPOT_API_KEY_HEADER` | No | API-key header name. Defaults to `X-API-Key`. |
 | `UNIFI_HOTSPOT_VERIFY_SSL` | No | Certificate verification setting. Defaults to `true`; set `false` only for a trusted self-signed controller. |
+| `UNIFI_HOTSPOT_SITE` | No | Server-owned Network application site. Defaults to `default`; renderer `site` values are ignored. |
+| `UNIFI_HOTSPOT_INSTANCE_SITES` | No | JSON object mapping permitted MagicMirror instance IDs to sites. When set, unlisted instance IDs are rejected and cannot trigger controller requests. |
+| `UNIFI_HOTSPOT_VOUCHER_CODE_POLICY` | No | Server-owned socket disclosure policy: `hidden` (default), `masked`, or `full`. |
 
 The shared fallback names `UNIFI_URL`, `UNIFI_API_KEY`, `UNIFI_USERNAME`, and
 `UNIFI_PASSWORD` remain supported. Authentication mode is inferred: an API key
@@ -214,7 +217,15 @@ vouchers does not trigger fallback.
 
 ### Sensitive Data Display
 
-- Set `maskVoucherCode: true` if you want to hide full voucher codes on the physical mirror display
+- Voucher codes are omitted from helper broadcasts by default. Set the
+  server-only `UNIFI_HOTSPOT_VOUCHER_CODE_POLICY=masked` to broadcast only
+  masked codes.
+- `UNIFI_HOTSPOT_VOUCHER_CODE_POLICY=full` explicitly permits full voucher
+  codes to be broadcast. MagicMirror node helpers broadcast socket
+  notifications to every connected client in the module namespace, so use
+  `full` only when every allowed MagicMirror client is trusted.
+- Renderer settings such as `showVoucherCode`, `maskVoucherCode`, and the
+  legacy `site` option cannot expand the server's disclosure or site policy.
 - Credentials are never included in renderer socket configuration or displayed
   on screen.
 - Controller response bodies and internal error details are not sent to the
@@ -243,6 +254,25 @@ Before restarting after an upgrade:
 The helper fails closed with a generic configuration error if the trusted HTTPS
 origin or server-side credentials are missing.
 
+## Migration to Server-Owned Voucher Policy
+
+Voucher site selection and code disclosure are now enforced by the helper:
+
+1. Move the renderer `site` value to `UNIFI_HOTSPOT_SITE`. Renderer `site`
+   remains harmless if left in an old config, but it is ignored.
+2. The new default is `UNIFI_HOTSPOT_VOUCHER_CODE_POLICY=hidden`, so upgrades
+   stop sending voucher codes through the broadcast socket transport.
+3. To retain a masked-code display, set the policy to `masked`.
+4. To retain the historical full-code display, explicitly set the policy to
+   `full` after accepting that every client connected to this module's
+   MagicMirror socket namespace receives the payload.
+5. For multiple module instances/sites, set
+   `UNIFI_HOTSPOT_INSTANCE_SITES` to a JSON object such as
+   `{"module_1":"default","module_2":"guest"}`. When this variable is present,
+   any unlisted instance is rejected.
+
+See [`.env.example`](.env.example) for a server-only environment template.
+
 ## Notes
 
 - The module first tries UniFi OS proxy endpoints such as `/proxy/network/api/s/default/rest/hotspot/voucher`.
@@ -253,7 +283,8 @@ origin or server-side credentials are missing.
   configured in Node.js, set `UNIFI_HOTSPOT_VERIFY_SSL=false` only on a trusted
   local network.
 - If you want to display expired vouchers for audit purposes, set `showInactive: true`.
-- If you want to avoid exposing full voucher codes on the mirror, set `maskVoucherCode: true`.
+- To display masked voucher codes without broadcasting raw codes, set
+  `UNIFI_HOTSPOT_VOUCHER_CODE_POLICY=masked`.
 - If you want a cleaner mirror look, set `showBorders: false`, `showBackground: false`, or both.
 - Legacy keys such as `showExpiryColumn` and `warningHours` are ignored and can be removed from existing configs.
 
@@ -272,7 +303,9 @@ origin or server-side credentials are missing.
 - **API key issues:** Confirm the key belongs to an account that can read the
   Network application.
 - **Intermittent 403 Forbidden errors:** The module should now re-authenticate once automatically; if it persists, verify the UniFi user or API key still has permission to read voucher data.
-- **No vouchers displayed:** Confirm the Network application site name and that hotspot vouchers exist for that site.
+- **No vouchers displayed:** Confirm `UNIFI_HOTSPOT_SITE` (or the instance entry
+  in `UNIFI_HOTSPOT_INSTANCE_SITES`) matches a Network application site with
+  hotspot vouchers.
 - **Certificate/SSL errors:** Prefer fixing the certificate chain; use
   `UNIFI_HOTSPOT_VERIFY_SSL=false` only for trusted local self-signed setups.
 - **Module shows "Loading" indefinitely or hangs:**

@@ -4,10 +4,15 @@ All notable changes to this project are documented in this file.
 
 The format is based on Keep a Changelog.
 
-## [Unreleased]
+## [2.0.0] - 2026-10-04
 
 ### Security
 
+- Enforced server-owned site and voucher-code disclosure policies. Renderer
+  payloads can no longer select a site or cause raw voucher codes to be
+  broadcast unless `UNIFI_HOTSPOT_VOUCHER_CODE_POLICY=full` is explicitly set.
+- Changed the voucher-code transport default to `hidden`; added a server-side
+  masked mode and optional strict instance-to-site mapping.
 - Changed TLS behavior to secure-by-default: `verifySSL` now defaults to `true` and helper fallback validation also defaults to certificate verification enabled.
 - Added instance-scoped frontend/backend socket payload routing (`instanceId`) to reduce cross-instance data bleed.
 - Added response-size guard (1 MB cap) for UniFi HTTP response buffering.

@@ -36,7 +36,6 @@ function normalizeString(value, fallback) {
 function buildHelperConfig(config, instanceId) {
   return {
     instanceId,
-    site: config.site,
     refreshInterval: config.refreshInterval,
     requestTimeout: config.requestTimeout,
     debug: config.debug
@@ -70,6 +69,7 @@ Module.register("MMM-UniFiHotspotVouchers", {
     this.hasRenderedData = false;
     this.dataState = {
       vouchers: [],
+      voucherCodePolicy: "hidden",
       fetchedAt: null,
       error: null,
       loading: true
@@ -95,6 +95,7 @@ Module.register("MMM-UniFiHotspotVouchers", {
       }
       this.dataState = {
         vouchers: data.vouchers || [],
+        voucherCodePolicy: data.voucherCodePolicy || "hidden",
         fetchedAt: data.fetchedAt || Date.now(),
         error: null,
         loading: false
@@ -167,7 +168,7 @@ Module.register("MMM-UniFiHotspotVouchers", {
     const headerRow = document.createElement("tr");
 
     const columns = [];
-    if (normalizeBoolean(this.config.showVoucherCode, true)) {
+    if (this.shouldShowVoucherCode()) {
       columns.push("Voucher");
     }
     if (normalizeBoolean(this.config.showNotes, true)) {
@@ -235,7 +236,7 @@ Module.register("MMM-UniFiHotspotVouchers", {
     const row = document.createElement("tr");
     row.className = `unifi-hotspot__row unifi-hotspot__row--${voucher.status}`;
 
-    if (normalizeBoolean(this.config.showVoucherCode, true)) {
+    if (this.shouldShowVoucherCode()) {
       const codeCell = document.createElement("td");
       codeCell.className = "unifi-hotspot__code";
       codeCell.textContent = this.formatVoucherCode(voucher.code);
@@ -275,12 +276,18 @@ Module.register("MMM-UniFiHotspotVouchers", {
       return "-";
     }
 
-    if (!normalizeBoolean(this.config.maskVoucherCode, false)) {
+    if (this.dataState.voucherCodePolicy === "masked" ||
+        !normalizeBoolean(this.config.maskVoucherCode, false)) {
       return raw;
     }
 
     const suffix = raw.slice(-4);
     return raw.length > 4 ? `${"•".repeat(Math.max(0, raw.length - 4))}${suffix}` : suffix;
+  },
+
+  shouldShowVoucherCode() {
+    return this.dataState.voucherCodePolicy !== "hidden" &&
+      normalizeBoolean(this.config.showVoucherCode, true);
   },
 
   getVisibleVouchers() {

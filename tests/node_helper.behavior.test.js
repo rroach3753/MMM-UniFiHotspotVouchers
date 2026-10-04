@@ -33,7 +33,10 @@ const ENV_NAMES = [
   "UNIFI_HOTSPOT_API_KEY",
   "UNIFI_API_KEY",
   "UNIFI_HOTSPOT_API_KEY_HEADER",
-  "UNIFI_HOTSPOT_VERIFY_SSL"
+  "UNIFI_HOTSPOT_VERIFY_SSL",
+  "UNIFI_HOTSPOT_SITE",
+  "UNIFI_HOTSPOT_INSTANCE_SITES",
+  "UNIFI_HOTSPOT_VOUCHER_CODE_POLICY"
 ];
 
 function withEnvironment(values, callback) {
@@ -71,6 +74,7 @@ function createState(overrides = {}) {
       requestTimeout: 10000,
       debug: false,
       site: "default",
+      voucherCodePolicy: "hidden",
       ...(overrides.config || {})
     },
     refreshTimer: null,
@@ -158,7 +162,7 @@ test("renderer helper payload excludes connection and authentication fields", ()
   assert.equal(sent.notification, "UNIFI_HOTSPOT_CONFIG");
   assert.deepEqual(
     Object.keys(sent.payload).sort(),
-    ["debug", "instanceId", "refreshInterval", "requestTimeout", "site"]
+    ["debug", "instanceId", "refreshInterval", "requestTimeout"]
   );
   assert.equal(JSON.stringify(sent.payload).includes("renderer-"), false);
 });
@@ -166,20 +170,64 @@ test("renderer helper payload excludes connection and authentication fields", ()
 test("server configuration ignores renderer targets and credentials", () => {
   withEnvironment({
     UNIFI_HOTSPOT_URL: "https://TRUSTED.example:443",
-    UNIFI_HOTSPOT_API_KEY: "server-key"
+    UNIFI_HOTSPOT_API_KEY: "server-key",
+    UNIFI_HOTSPOT_SITE: "trusted-site",
+    UNIFI_HOTSPOT_VOUCHER_CODE_POLICY: "masked"
   }, () => {
     const config = helper.buildServerConfig({
       instanceId: "module_1",
       controllerUrl: "https://169.254.169.254",
+      site: "attacker-site",
       username: "renderer-user",
       password: "renderer-password",
-      apiKey: "renderer-key"
+      apiKey: "renderer-key",
+      showVoucherCode: true,
+      maskVoucherCode: false,
+      voucherCodePolicy: "full"
     });
 
     assert.equal(config.controllerUrl, "https://trusted.example");
+    assert.equal(config.site, "trusted-site");
+    assert.equal(config.voucherCodePolicy, "masked");
     assert.equal(config.username, "");
     assert.equal(config.password, "");
     assert.equal(config.apiKey, "server-key");
+  });
+});
+
+test("server instance policy selects sites and rejects renderer-created instances", () => {
+  withEnvironment({
+    UNIFI_HOTSPOT_URL: "https://unifi.example",
+    UNIFI_HOTSPOT_API_KEY: "server-key",
+    UNIFI_HOTSPOT_SITE: "fallback-site",
+    UNIFI_HOTSPOT_INSTANCE_SITES: JSON.stringify({
+      module_1: "lobby",
+      module_2: "guest"
+    })
+  }, () => {
+    const permitted = helper.buildServerConfig({
+      instanceId: "module_1",
+      site: "guest"
+    });
+    assert.equal(permitted.site, "lobby");
+
+    assert.throws(
+      () => helper.buildServerConfig({ instanceId: "attacker", site: "lobby" }),
+      /not permitted by the server-side site policy/
+    );
+  });
+});
+
+test("invalid server disclosure policy fails closed", () => {
+  withEnvironment({
+    UNIFI_HOTSPOT_URL: "https://unifi.example",
+    UNIFI_HOTSPOT_API_KEY: "server-key",
+    UNIFI_HOTSPOT_VOUCHER_CODE_POLICY: "renderer"
+  }, () => {
+    assert.throws(
+      () => helper.buildServerConfig({ instanceId: "module_1" }),
+      /must be hidden, masked, or full/
+    );
   });
 });
 
@@ -298,7 +346,10 @@ test("empty endpoint success takes precedence over other endpoint failures", asy
 });
 
 test("instance state, routing, and timers remain independent", () => {
-  const first = createState({ instanceId: "module_1" });
+  const first = createState({
+    instanceId: "module_1",
+    config: { voucherCodePolicy: "full" }
+  });
   const second = createState({ instanceId: "module_2" });
   helper.instances.set(first.instanceId, first);
   helper.instances.set(second.instanceId, second);
@@ -315,6 +366,50 @@ test("instance state, routing, and timers remain independent", () => {
     code: "AUTHENTICATION_ERROR",
     instanceId: "module_2"
   });
+});
+
+test("helper response omits voucher codes when server policy is hidden", () => {
+  const state = createState({ config: { voucherCodePolicy: "hidden" } });
+  const sent = [];
+  helper.sendSocketNotification = (notification, payload) => sent.push({ notification, payload });
+
+  helper.sendData(state, [{
+    code: "1234567890",
+    note: "Lobby",
+    status: "active"
+  }]);
+
+  assert.equal(sent[0].notification, "UNIFI_HOTSPOT_DATA");
+  assert.equal(sent[0].payload.voucherCodePolicy, "hidden");
+  assert.equal(Object.hasOwn(sent[0].payload.vouchers[0], "code"), false);
+  assert.equal(JSON.stringify(sent[0].payload).includes("1234567890"), false);
+});
+
+test("helper response masks voucher codes before broadcast", () => {
+  const state = createState({ config: { voucherCodePolicy: "masked" } });
+  const sent = [];
+  helper.sendSocketNotification = (notification, payload) => sent.push({ notification, payload });
+
+  helper.sendData(state, [{
+    code: "1234567890",
+    note: "Lobby",
+    status: "active"
+  }]);
+
+  assert.equal(sent[0].payload.voucherCodePolicy, "masked");
+  assert.equal(sent[0].payload.vouchers[0].code, "••••••7890");
+  assert.equal(JSON.stringify(sent[0].payload).includes("1234567890"), false);
+});
+
+test("helper broadcasts full voucher codes only with explicit server policy", () => {
+  const state = createState({ config: { voucherCodePolicy: "full" } });
+  const sent = [];
+  helper.sendSocketNotification = (notification, payload) => sent.push({ notification, payload });
+
+  helper.sendData(state, [{ code: "1234567890" }]);
+
+  assert.equal(sent[0].payload.voucherCodePolicy, "full");
+  assert.equal(sent[0].payload.vouchers[0].code, "1234567890");
 });
 
 test("stale in-flight instance work cannot publish or reschedule", async () => {
