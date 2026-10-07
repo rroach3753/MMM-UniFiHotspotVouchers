@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on Keep a Changelog.
 
+## [Unreleased]
+
+### Changed
+
+- Updated ESLint to 10.12.0
+
 ## [2.0.0] - 2026-10-04
 
 ### Security
