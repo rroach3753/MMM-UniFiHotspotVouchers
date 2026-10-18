@@ -1,5 +1,3 @@
-/* global Module */
-
 function normalizeBoolean(value, fallback) {
   if (value === undefined || value === null) {
     return fallback;
@@ -298,12 +296,6 @@ Module.register("MMM-UniFiHotspotVouchers", {
     const filtered = showInactive ? vouchers : vouchers.filter((voucher) => voucher.status === "active");
 
     return filtered.sort((left, right) => {
-      if (sortBy === "created") {
-        const leftTime = left.createdAt ?? Infinity;
-        const rightTime = right.createdAt ?? Infinity;
-        return leftTime - rightTime;
-      }
-
       if (sortBy === "code") {
         return String(left.code || "").localeCompare(String(right.code || ""));
       }

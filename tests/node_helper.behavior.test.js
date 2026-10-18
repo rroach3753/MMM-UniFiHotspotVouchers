@@ -169,13 +169,70 @@ function loadRendererDefinition() {
       }
     },
     console,
-    Date
+    Date,
+    document: {
+      createElement() {
+        return {
+          children: [], textContent: "", classList: { add() {} },
+          appendChild(child) { this.children.push(child); }
+        };
+      }
+    }
   });
   return definition;
 }
 
 test.beforeEach(() => {
   helper.start();
+});
+
+test("cached voucher replay preserves the original successful fetch timestamp", () => {
+  const originalNow = Date.now;
+  const originalSend = helper.sendSocketNotification;
+  const sent = [];
+  const state = createState();
+  helper.instances.set(state.instanceId, state);
+  helper.sendSocketNotification = (_notification, payload) => sent.push(payload);
+  try {
+    Date.now = () => 1000;
+    helper.sendData(state, []);
+    Date.now = () => 9000;
+    helper.socketNotificationReceived("UNIFI_HOTSPOT_CONFIG", { instanceId: state.instanceId });
+    assert.equal(sent.length, 2);
+    assert.equal(sent[0].fetchedAt, 1000);
+    assert.equal(sent[1].fetchedAt, 1000);
+  } finally {
+    Date.now = originalNow;
+    helper.sendSocketNotification = originalSend;
+  }
+});
+
+test("renderer preserves voucher sorting, filtering, masking and empty states", () => {
+  const definition = loadRendererDefinition();
+  const vouchers = [
+    { code: "B123456", status: "active", createdAt: 2000, note: "Lobby" },
+    { code: "A123456", status: "disabled", createdAt: 1000, note: "Office" },
+    { code: "C123456", status: "active", createdAt: null, note: "Guest" }
+  ];
+  const renderer = {
+    ...definition, config: { ...definition.defaults },
+    dataState: { vouchers, voucherCodePolicy: "full", loading: false }
+  };
+  const codes = () => Array.from(renderer.getVisibleVouchers(), (voucher) => voucher.code);
+  assert.deepEqual(codes(), ["B123456", "C123456"]);
+  renderer.config.showInactive = true;
+  assert.deepEqual(codes(), ["A123456", "B123456", "C123456"]);
+  renderer.config.sortBy = "code";
+  assert.deepEqual(codes(), ["A123456", "B123456", "C123456"]);
+  renderer.config.sortBy = "unknown";
+  assert.deepEqual(codes(), ["A123456", "B123456", "C123456"]);
+  assert.equal(vouchers[0].code, "B123456");
+  renderer.config.maskVoucherCode = true;
+  assert.equal(renderer.formatVoucherCode("B123456"), "\u2022\u2022\u20223456");
+  renderer.dataState.voucherCodePolicy = "hidden";
+  assert.equal(renderer.shouldShowVoucherCode(), false);
+  renderer.dataState.vouchers = [];
+  assert.equal(renderer.getDom().textContent, definition.defaults.emptyMessage);
 });
 
 test("renderer helper payload excludes connection and authentication fields", () => {

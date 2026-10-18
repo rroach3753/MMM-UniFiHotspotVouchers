@@ -161,7 +161,7 @@ fall back to the defaults shown below.
 | `compact` | Boolean | No | `false` | Uses tighter spacing and smaller table padding. |
 | `showBorders` | Boolean | No | `true` | Shows or hides the border and shadow around the voucher card. |
 | `showBackground` | Boolean | No | `true` | Shows or hides the translucent card background behind the voucher table. |
-| `requestTimeout` | Number | No | `10000` | Request timeout in milliseconds, clamped from 1000 through 2147483647. |
+| `requestTimeout` | Number | No | `10000` | Request timeout in milliseconds, clamped from 1000 through 30000. |
 | `debug` | Boolean | No | `false` | Enable debug logging to browser console and server logs for troubleshooting. |
 | `emptyMessage` | String | No | `No hotspot vouchers found.` | Message shown when no vouchers match the current filter. |
 | `loadingMessage` | String | No | `Loading UniFi vouchers...` | Message shown while the first fetch is in progress. |
@@ -214,6 +214,8 @@ vouchers does not trigger fallback.
   16 instances; each has one non-overlapping polling loop. Repeated configuration
   messages replay cached data/errors rather than restarting controller requests.
   Restart MagicMirror to change an instance's polling options.
+  Cached replies retain their original successful fetch timestamp; reconnecting
+  a renderer does not make old voucher data appear freshly fetched.
   Request timeouts are clamped to 1000-30000 milliseconds.
 - Configure `UNIFI_HOTSPOT_INSTANCE_SITES` to reject invented instance IDs before
   they can consume an instance slot. Routing IDs do not authenticate clients.
@@ -300,6 +302,21 @@ See [`.env.example`](.env.example) for a server-only environment template.
 - `sortBy: "created"` is usually the most useful view for voucher inventory monitoring.
 - `showSummary: true` is good when you want a quick count of active and total vouchers.
 - `compact: true` is a better fit for narrow mirror layouts.
+
+## Development
+
+```sh
+npm ci --ignore-scripts
+npm run lint
+npm test
+```
+
+Run development checks on Node.js 20.19 or newer. ESLint applies recommended
+common-error rules with separate browser and Node.js globals. CI runs lint and
+tests on Node.js 20, 22, and 24, in addition to the existing release checks.
+The legacy renderer `site` option remains accepted but ignored; use the
+server-owned site settings described above. Sorting, masking, filtering, and
+socket notification formats remain unchanged.
 
 ## Troubleshooting
 

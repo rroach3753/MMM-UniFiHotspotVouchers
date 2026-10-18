@@ -6,9 +6,22 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-18
+
 ### Changed
 
+- Preserve the original fetch timestamp when replaying cached vouchers.
+- Simplify frontend sorting without changing ordering or filtering behavior.
+- Enable recommended environment-aware ESLint checks and run lint/tests in CI
+  on Node.js 20, 22, and 24; add timestamp and frontend regression coverage.
 - Updated ESLint to 10.12.0
+
+### Security
+
+- Validate socket configuration before coercion, bound retained instances,
+  and replay cached results for duplicate configuration messages instead of
+  starting additional polling requests.
+- Clamp request timeouts to 1000-30000 milliseconds.
 
 ## [2.0.0] - 2026-10-04
 

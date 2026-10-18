@@ -185,7 +185,7 @@ module.exports = NodeHelper.create({
 
     const existingState = this.instances.get(instanceId);
     if (existingState) {
-      if (existingState.lastVouchers) this.sendData(existingState, existingState.lastVouchers);
+      if (existingState.lastVouchers) this.sendData(existingState, existingState.lastVouchers, existingState.fetchedAt);
       else if (existingState.lastErrorCode) this.sendPublicError(instanceId, existingState.lastErrorCode);
       return;
     }
@@ -364,13 +364,14 @@ module.exports = NodeHelper.create({
     this.sendPublicError(state.instanceId, error && error.code);
   },
 
-  sendData(state, vouchers) {
+  sendData(state, vouchers, fetchedAt = Date.now()) {
     state.lastVouchers = vouchers;
     state.lastErrorCode = null;
+    state.fetchedAt = fetchedAt;
     this.sendSocketNotification("UNIFI_HOTSPOT_DATA", {
       vouchers: vouchers.map((voucher) => this.applyVoucherCodePolicy(voucher, state.config.voucherCodePolicy)),
       voucherCodePolicy: state.config.voucherCodePolicy,
-      fetchedAt: Date.now(),
+      fetchedAt,
       instanceId: state.instanceId
     });
   },
