@@ -6,10 +6,12 @@ const MAX_TIMER_DELAY = 2147483647;
 const MIN_REFRESH_INTERVAL = 30000;
 const DEFAULT_REFRESH_INTERVAL = 300000;
 const MIN_REQUEST_TIMEOUT = 1000;
+const MAX_REQUEST_TIMEOUT = 30000;
 const DEFAULT_REQUEST_TIMEOUT = 10000;
 const INSTANCE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const VOUCHER_CODE_POLICIES = new Set(["hidden", "masked", "full"]);
+const MAX_INSTANCES = 16;
 
 function normalizeBoolean(value, fallback) {
   if (value === undefined || value === null) {
@@ -157,19 +159,39 @@ module.exports = NodeHelper.create({
     this.instances = new Map();
   },
 
+  stop() {
+    for (const state of this.instances.values()) {
+      this.stopTimer(state);
+    }
+    this.instances.clear();
+  },
+
   socketNotificationReceived(notification, payload) {
     if (notification !== "UNIFI_HOTSPOT_CONFIG") {
       return;
     }
 
-    const instanceId = normalizeString(payload && payload.instanceId, "");
-    if (!INSTANCE_ID_PATTERN.test(instanceId)) {
+    const instanceId = payload && payload.instanceId;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
+        typeof instanceId !== "string" || !INSTANCE_ID_PATTERN.test(instanceId) ||
+        ["refreshInterval", "requestTimeout"].some((key) => {
+          const value = payload[key];
+          return value != null && ((typeof value !== "number" && typeof value !== "string") || !Number.isFinite(Number(value)));
+        })) {
+      console.error("[MMM-UniFiHotspotVouchers] Invalid socket configuration.");
+      this.sendPublicError(typeof instanceId === "string" ? instanceId : null, "CONFIGURATION_ERROR");
       return;
     }
 
     const existingState = this.instances.get(instanceId);
-    if (existingState && existingState.isInitializing) {
-      this.log(existingState, "Already initializing, skipping duplicate config notification");
+    if (existingState) {
+      if (existingState.lastVouchers) this.sendData(existingState, existingState.lastVouchers);
+      else if (existingState.lastErrorCode) this.sendPublicError(instanceId, existingState.lastErrorCode);
+      return;
+    }
+    if (this.instances.size >= MAX_INSTANCES) {
+      console.error("[MMM-UniFiHotspotVouchers] Instance limit reached.");
+      this.sendPublicError(instanceId, "CONFIGURATION_ERROR");
       return;
     }
 
@@ -180,10 +202,6 @@ module.exports = NodeHelper.create({
       this.logInternalError({ config: { debug: false }, instanceId }, error);
       this.sendPublicError(instanceId, "CONFIGURATION_ERROR");
       return;
-    }
-
-    if (existingState) {
-      this.stopTimer(existingState);
     }
 
     const state = {
@@ -262,7 +280,7 @@ module.exports = NodeHelper.create({
         rendererConfig.requestTimeout,
         DEFAULT_REQUEST_TIMEOUT,
         MIN_REQUEST_TIMEOUT,
-        MAX_TIMER_DELAY
+        MAX_REQUEST_TIMEOUT
       ),
       debug: normalizeBoolean(rendererConfig.debug, false)
     };
@@ -278,6 +296,9 @@ module.exports = NodeHelper.create({
       }
     } catch (error) {
       this.sendError(state, error);
+      if (this.isCurrentState(state)) {
+        this.scheduleNextRefresh(state);
+      }
     } finally {
       state.isInitializing = false;
     }
@@ -337,11 +358,15 @@ module.exports = NodeHelper.create({
       return;
     }
 
+    state.lastVouchers = null;
+    state.lastErrorCode = error && error.code || "CONTROLLER_ERROR";
     this.logInternalError(state, error);
     this.sendPublicError(state.instanceId, error && error.code);
   },
 
   sendData(state, vouchers) {
+    state.lastVouchers = vouchers;
+    state.lastErrorCode = null;
     this.sendSocketNotification("UNIFI_HOTSPOT_DATA", {
       vouchers: vouchers.map((voucher) => this.applyVoucherCodePolicy(voucher, state.config.voucherCodePolicy)),
       voucherCodePolicy: state.config.voucherCodePolicy,
@@ -585,7 +610,7 @@ module.exports = NodeHelper.create({
         state.config.requestTimeout,
         DEFAULT_REQUEST_TIMEOUT,
         MIN_REQUEST_TIMEOUT,
-        MAX_TIMER_DELAY
+        MAX_REQUEST_TIMEOUT
       );
       request.setTimeout(timeoutMs);
       request.on("timeout", () => {

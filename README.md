@@ -210,6 +210,13 @@ vouchers does not trigger fallback.
 
 ### Network Security
 
+- Socket payloads are validated before coercion. The helper retains at most
+  16 instances; each has one non-overlapping polling loop. Repeated configuration
+  messages replay cached data/errors rather than restarting controller requests.
+  Restart MagicMirror to change an instance's polling options.
+  Request timeouts are clamped to 1000-30000 milliseconds.
+- Configure `UNIFI_HOTSPOT_INSTANCE_SITES` to reject invented instance IDs before
+  they can consume an instance slot. Routing IDs do not authenticate clients.
 - The module connects to a single server-controlled canonical HTTPS origin.
 - Renderer configuration cannot change the controller target.
 - Keep your UniFi controller and MagicMirror on a secure, private network

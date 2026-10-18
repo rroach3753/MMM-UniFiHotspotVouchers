@@ -83,6 +83,48 @@ function createState(overrides = {}) {
   };
 }
 
+test("socket payloads cannot throw or create unbounded polling instances", () => {
+  const originalInitialize = helper.initialize;
+  const originalSend = helper.sendSocketNotification;
+  const sent = [];
+  let initializations = 0;
+  helper.start();
+  helper.initialize = () => { initializations++; };
+  helper.sendSocketNotification = (notification, payload) => sent.push({ notification, payload });
+  try {
+    withEnvironment({
+      UNIFI_HOTSPOT_URL: "https://unifi.example",
+      UNIFI_HOTSPOT_API_KEY: "server-key"
+    }, () => {
+      for (const payload of [
+        [],
+        { instanceId: { toString: null } },
+        { instanceId: "valid", requestTimeout: { valueOf: null, toString: null } }
+      ]) {
+        assert.doesNotThrow(() => helper.socketNotificationReceived("UNIFI_HOTSPOT_CONFIG", payload));
+        assert.equal(sent.at(-1).notification, "UNIFI_HOTSPOT_ERROR");
+      }
+      assert.equal(initializations, 0);
+      for (let index = 0; index < 18; index++) {
+        helper.socketNotificationReceived("UNIFI_HOTSPOT_CONFIG", { instanceId: `instance-${index}` });
+      }
+      assert.equal(helper.instances.size, 16);
+      assert.equal(initializations, 16);
+      helper.socketNotificationReceived("UNIFI_HOTSPOT_CONFIG", { instanceId: "instance-0", refreshInterval: 30000 });
+      assert.equal(initializations, 16);
+      assert.equal(helper.instances.get("instance-0").config.refreshInterval, 300000);
+      helper.sendData(helper.instances.get("instance-0"), [{ code: "secret", note: "Lobby" }]);
+      helper.socketNotificationReceived("UNIFI_HOTSPOT_CONFIG", { instanceId: "instance-0" });
+      assert.equal(sent.at(-1).notification, "UNIFI_HOTSPOT_DATA");
+      assert.equal(Object.hasOwn(sent.at(-1).payload.vouchers[0], "code"), false);
+    });
+  } finally {
+    helper.initialize = originalInitialize;
+    helper.sendSocketNotification = originalSend;
+    helper.start();
+  }
+});
+
 function mockHttpsResponse({
   chunks = [Buffer.from('{"data":[]}')],
   headers = {},
@@ -448,6 +490,9 @@ test("refresh and request timers clamp finite integer delays safely", () => {
 
     assert.equal(maximum.refreshInterval, 2147483647);
     assert.equal(maximum.requestTimeout, 10000);
+    assert.equal(helper.buildServerConfig({
+      instanceId: "module_3", requestTimeout: Number.MAX_VALUE
+    }).requestTimeout, 30000);
     assert.equal(minimum.refreshInterval, 30000);
     assert.equal(minimum.requestTimeout, 1000);
   });
