@@ -307,8 +307,8 @@ See [`.env.example`](.env.example) for a server-only environment template.
 
 ```sh
 npm ci --ignore-scripts
-npm run lint
-npm test
+node --run lint
+node --run test
 ```
 
 Run development checks on Node.js 20.19 or newer. ESLint applies recommended
