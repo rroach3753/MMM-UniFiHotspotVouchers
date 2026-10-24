@@ -1,6 +1,6 @@
 {
   "name": "mmm-unifihotspotvouchers",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "type": "commonjs",
   "description": "MagicMirror module for displaying UniFi hotspot vouchers from a UniFi OS console",
   "main": "MMM-UniFiHotspotVouchers.js",

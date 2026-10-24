@@ -42,7 +42,7 @@ function buildHelperConfig(config, instanceId) {
 
 Module.register("MMM-UniFiHotspotVouchers", {
   defaults: {
-    title: "UniFi Hotspot Vouchers",
+    title: "",
     site: "default",
     refreshInterval: 300000,
     requestTimeout: 10000,
@@ -68,6 +68,7 @@ Module.register("MMM-UniFiHotspotVouchers", {
     this.dataState = {
       vouchers: [],
       voucherCodePolicy: "hidden",
+      ssid: null,
       fetchedAt: null,
       error: null,
       loading: true
@@ -94,6 +95,7 @@ Module.register("MMM-UniFiHotspotVouchers", {
       this.dataState = {
         vouchers: data.vouchers || [],
         voucherCodePolicy: data.voucherCodePolicy || "hidden",
+        ssid: typeof data.ssid === "string" ? data.ssid : null,
         fetchedAt: data.fetchedAt || Date.now(),
         error: null,
         loading: false
@@ -135,15 +137,28 @@ Module.register("MMM-UniFiHotspotVouchers", {
       showBackground ? "" : "unifi-hotspot--noBackground"
     ].filter(Boolean).join(" ");
 
+    const title = normalizeString(
+      this.config.title,
+      this.dataState.ssid ? `Network: ${this.dataState.ssid}` : "UniFi Hotspot Vouchers"
+    );
+    const titleElement = document.createElement("div");
+    titleElement.className = "unifi-hotspot__title";
+    titleElement.textContent = title;
+    wrapper.appendChild(titleElement);
+
     if (this.dataState.loading) {
       wrapper.classList.add("dimmed", "small");
-      wrapper.textContent = normalizeString(this.config.loadingMessage, "Loading UniFi vouchers...");
+      const message = document.createElement("div");
+      message.textContent = normalizeString(this.config.loadingMessage, "Loading UniFi vouchers...");
+      wrapper.appendChild(message);
       return wrapper;
     }
 
     if (this.dataState.error) {
       wrapper.classList.add("bright", "small", "unifi-hotspot__error");
-      wrapper.textContent = this.dataState.error;
+      const message = document.createElement("div");
+      message.textContent = this.dataState.error;
+      wrapper.appendChild(message);
       return wrapper;
     }
 
@@ -151,7 +166,9 @@ Module.register("MMM-UniFiHotspotVouchers", {
 
     if (!vouchers.length) {
       wrapper.classList.add("dimmed", "small");
-      wrapper.textContent = normalizeString(this.config.emptyMessage, "No hotspot vouchers found.");
+      const message = document.createElement("div");
+      message.textContent = normalizeString(this.config.emptyMessage, "No hotspot vouchers found.");
+      wrapper.appendChild(message);
       return wrapper;
     }
 

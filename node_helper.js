@@ -371,6 +371,7 @@ module.exports = NodeHelper.create({
     this.sendSocketNotification("UNIFI_HOTSPOT_DATA", {
       vouchers: vouchers.map((voucher) => this.applyVoucherCodePolicy(voucher, state.config.voucherCodePolicy)),
       voucherCodePolicy: state.config.voucherCodePolicy,
+      ssid: state.ssid || null,
       fetchedAt,
       instanceId: state.instanceId
     });
@@ -397,9 +398,147 @@ module.exports = NodeHelper.create({
 
   async refreshData(state) {
     const vouchers = await this.fetchVouchers(state);
+    const ssid = await this.fetchGuestNetworkName(state);
     if (this.isCurrentState(state)) {
+      if (ssid) state.ssid = ssid;
       this.sendData(state, vouchers);
     }
+  },
+
+  async fetchGuestNetworkName(state) {
+    const site = encodeURIComponent(state.config.site);
+    const endpoints = [
+      `/proxy/network/integration/v1/sites/${site}/wlan`,
+      `/proxy/network/integration/v1/sites/${site}/wifi`,
+      `/proxy/network/api/s/${site}/rest/wlanconf`,
+      `/api/s/${site}/rest/wlanconf`,
+      `/proxy/network/api/v2/sites/${site}/networks?type=hotspot`,
+      `/proxy/network/api/v2/sites/${site}/networks?type=guest`,
+      `/api/v2/sites/${site}/networks?type=hotspot`,
+      `/api/v2/sites/${site}/networks?type=guest`
+    ];
+    const apiKey = normalizeString(state.config.apiKey, "");
+
+    if (apiKey && state.config.authMode !== "login") {
+      try {
+        const ssid = await this.fetchGuestNetworkEndpoints(state, endpoints, {
+          apiKey,
+          apiKeyHeader: state.config.apiKeyHeader
+        });
+        if (ssid || state.config.authMode === "apikey") return ssid;
+      } catch (error) {
+        this.logInternalError(state, error);
+        if (state.config.authMode === "apikey") return null;
+      }
+    }
+
+    const username = normalizeString(state.config.username, "");
+    const password = normalizeString(state.config.password, "");
+    if (!username || !password) return null;
+
+    try {
+      if (!state.sessionCookies.length) {
+        await this.login(state, state.config.controllerUrl, username, password);
+      }
+      return await this.fetchGuestNetworkEndpoints(state, endpoints, { cookies: true });
+    } catch (error) {
+      this.logInternalError(state, error);
+      return null;
+    }
+  },
+
+  async fetchGuestNetworkEndpoints(state, endpoints, authOptions) {
+    let lastError = null;
+    let hadSuccessfulResponse = false;
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await this.requestJson(
+          state, "GET", state.config.controllerUrl, endpoint, null, null, authOptions
+        );
+        hadSuccessfulResponse = true;
+        const records = this.extractNetworkRecords(response);
+        if (!records.length) continue;
+
+        const guestNetworks = records
+          .filter((record) => this.isGuestNetwork(record))
+          .map((record) => ({
+            ssid: normalizeString(record.name || record.ssid, ""),
+            score: this.guestNetworkScore(record)
+          }))
+          .filter((record) => record.ssid)
+          .sort((left, right) => right.score - left.score);
+
+        return guestNetworks.length ? guestNetworks[0].ssid : null;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (!hadSuccessfulResponse && lastError) throw lastError;
+    return null;
+  },
+
+  extractNetworkRecords(response) {
+    const records = [];
+    const queue = [response];
+    const seen = new Set();
+
+    while (queue.length) {
+      const value = queue.shift();
+      if (!value || typeof value !== "object" || seen.has(value)) continue;
+      seen.add(value);
+
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (item && typeof item === "object") {
+            if (item.name || item.ssid || item.hotspot_enabled || item.portal_enabled ||
+                item.is_guest || item.guest_policy || item.type || item.network_type || item.purpose) {
+              records.push(item);
+            } else {
+              queue.push(item);
+            }
+          }
+        }
+        continue;
+      }
+
+      for (const child of Object.values(value)) {
+        if (child && typeof child === "object") queue.push(child);
+      }
+    }
+
+    return records;
+  },
+
+  isGuestNetwork(record) {
+    if (["hotspot_enabled", "portal_enabled", "is_guest", "guest_policy"]
+      .some((key) => normalizeBoolean(record[key], false))) {
+      return true;
+    }
+
+    return [record.type, record.network_type, record.purpose].some((value) => (
+      typeof value === "string" && /^(guest|hotspot)(?:$|[ _-])/i.test(value.trim())
+    ));
+  },
+
+  guestNetworkScore(record) {
+    const details = [
+      record.type,
+      record.network_type,
+      record.purpose,
+      record.wlan_bands,
+      record.security
+    ].map((value) => String(value == null ? "" : value).toLowerCase()).join(" ");
+
+    let score = 0;
+    if (details.includes("hotspot")) score += 100;
+    else if (details.includes("guest")) score += 40;
+    if (normalizeBoolean(record.hotspot_enabled, false)) score += 100;
+    if (normalizeBoolean(record.portal_enabled, false)) score += 80;
+    if (normalizeBoolean(record.is_guest, false)) score += 50;
+    if (normalizeBoolean(record.guest_policy, false)) score += 20;
+    return score;
   },
 
   async fetchVouchers(state) {

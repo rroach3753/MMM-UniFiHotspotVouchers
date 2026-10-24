@@ -182,6 +182,10 @@ function loadRendererDefinition() {
   return definition;
 }
 
+function renderedText(element) {
+  return `${element.textContent || ""}${(element.children || []).map(renderedText).join("")}`;
+}
+
 test.beforeEach(() => {
   helper.start();
 });
@@ -191,6 +195,7 @@ test("cached voucher replay preserves the original successful fetch timestamp", 
   const originalSend = helper.sendSocketNotification;
   const sent = [];
   const state = createState();
+  state.ssid = "Guest Network";
   helper.instances.set(state.instanceId, state);
   helper.sendSocketNotification = (_notification, payload) => sent.push(payload);
   try {
@@ -201,6 +206,7 @@ test("cached voucher replay preserves the original successful fetch timestamp", 
     assert.equal(sent.length, 2);
     assert.equal(sent[0].fetchedAt, 1000);
     assert.equal(sent[1].fetchedAt, 1000);
+    assert.equal(sent[1].ssid, "Guest Network");
   } finally {
     Date.now = originalNow;
     helper.sendSocketNotification = originalSend;
@@ -232,7 +238,62 @@ test("renderer preserves voucher sorting, filtering, masking and empty states", 
   renderer.dataState.voucherCodePolicy = "hidden";
   assert.equal(renderer.shouldShowVoucherCode(), false);
   renderer.dataState.vouchers = [];
-  assert.equal(renderer.getDom().textContent, definition.defaults.emptyMessage);
+  assert.match(renderedText(renderer.getDom()), /No hotspot vouchers found\./);
+});
+
+test("renderer uses the discovered guest network name unless a title override is configured", () => {
+  const definition = loadRendererDefinition();
+  const renderer = {
+    ...definition,
+    config: { ...definition.defaults },
+    dataState: {
+      vouchers: [],
+      ssid: "Guest Network",
+      voucherCodePolicy: "hidden",
+      loading: false
+    }
+  };
+
+  assert.equal(renderer.getDom().children[0].textContent, "Network: Guest Network");
+  renderer.config.title = "Visitor Access";
+  assert.equal(renderer.getDom().children[0].textContent, "Visitor Access");
+  renderer.config.title = "";
+  renderer.dataState.ssid = null;
+  assert.equal(renderer.getDom().children[0].textContent, "UniFi Hotspot Vouchers");
+});
+
+test("helper selects a guest WLAN name without exposing controller credentials", async () => {
+  const originalRequest = helper.requestJson;
+  const state = createState({
+    config: {
+      site: "default",
+      apiKey: "server-key",
+      apiKeyHeader: "X-API-Key"
+    }
+  });
+  let requestOptions;
+  helper.requestJson = async (_state, method, _controllerUrl, endpoint, _body, _headers, authOptions) => {
+    requestOptions = { method, endpoint, authOptions };
+    return {
+      data: [
+        { name: "Private Network", type: "corporate" },
+        { name: "Visitor WiFi", type: "hotspot", hotspot_enabled: true }
+      ]
+    };
+  };
+
+  try {
+    const ssid = await helper.fetchGuestNetworkName(state);
+    assert.equal(ssid, "Visitor WiFi");
+    assert.equal(requestOptions.method, "GET");
+    assert.equal(requestOptions.endpoint, "/proxy/network/integration/v1/sites/default/wlan");
+    assert.deepEqual(requestOptions.authOptions, {
+      apiKey: "server-key",
+      apiKeyHeader: "X-API-Key"
+    });
+  } finally {
+    helper.requestJson = originalRequest;
+  }
 });
 
 test("renderer helper payload excludes connection and authentication fields", () => {

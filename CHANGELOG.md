@@ -6,6 +6,15 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-10-24
+
+### Added
+
+- Display the discovered guest/hotspot network name as the module header by
+  default, with support for a custom title override.
+- Fall back to the generic voucher title if WLAN discovery is unavailable;
+  voucher display remains available independently of network-name discovery.
+
 ## [2.0.1] - 2026-10-18
 
 ### Changed

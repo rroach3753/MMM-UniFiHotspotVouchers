@@ -148,7 +148,7 @@ fall back to the defaults shown below.
 
 | Option | Type | Required? | Default | What it does |
 | --- | --- | --- | --- | --- |
-| `title` | String | No | `UniFi Hotspot Vouchers` | Title shown above the voucher table. |
+| `title` | String | No | Empty | Custom title shown above the voucher table. When empty, the module displays the discovered guest/hotspot network name, or `UniFi Hotspot Vouchers` if discovery is unavailable. |
 | `refreshInterval` | Number | No | `300000` | Refresh interval in milliseconds, clamped from 30000 through 2147483647. |
 | `showInactive` | Boolean | No | `false` | Shows inactive, disabled, and used vouchers instead of only active ones. |
 | `showSummary` | Boolean | No | `true` | Shows the summary chips for active and total vouchers. |
