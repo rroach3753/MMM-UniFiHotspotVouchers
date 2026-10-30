@@ -307,13 +307,15 @@ See [`.env.example`](.env.example) for a server-only environment template.
 
 ```sh
 npm ci --ignore-scripts
-npm run lint
-npm test
+npx --no-install eslint
+node --test tests/*.test.js
 ```
 
 Run development checks on Node.js 20.19 or newer. ESLint applies recommended
-common-error rules with separate browser and Node.js globals. CI runs lint and
-tests on Node.js 20, 22, and 24, in addition to the existing release checks.
+common-error rules with separate browser and Node.js globals.
+Checks are run locally; this repository has no automated CI workflow.
+These commands invoke tools directly to retain Node.js 20 compatibility;
+`node --run` requires Node.js 22 or newer.
 The legacy renderer `site` option remains accepted but ignored; use the
 server-owned site settings described above. Sorting, masking, filtering, and
 socket notification formats remain unchanged.
