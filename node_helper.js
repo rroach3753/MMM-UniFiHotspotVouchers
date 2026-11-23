@@ -8,10 +8,17 @@ const DEFAULT_REFRESH_INTERVAL = 300000;
 const MIN_REQUEST_TIMEOUT = 1000;
 const MAX_REQUEST_TIMEOUT = 30000;
 const DEFAULT_REQUEST_TIMEOUT = 10000;
+const SSID_CACHE_TTL = 900000;
 const INSTANCE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const VOUCHER_CODE_POLICIES = new Set(["hidden", "masked", "full"]);
 const MAX_INSTANCES = 16;
+const DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit"
+});
 
 function normalizeBoolean(value, fallback) {
   if (value === undefined || value === null) {
@@ -209,6 +216,11 @@ module.exports = NodeHelper.create({
       config,
       refreshTimer: null,
       sessionCookies: [],
+      loginPromise: null,
+      ssid: null,
+      ssidFetchedAt: 0,
+      ssidCheckedAt: 0,
+      ssidLookupPromise: null,
       isInitializing: false
     };
     this.instances.set(instanceId, state);
@@ -397,8 +409,10 @@ module.exports = NodeHelper.create({
   },
 
   async refreshData(state) {
-    const vouchers = await this.fetchVouchers(state);
-    const ssid = await this.fetchGuestNetworkName(state);
+    const [vouchers, ssid] = await Promise.all([
+      this.fetchVouchers(state),
+      this.fetchGuestNetworkName(state)
+    ]);
     if (this.isCurrentState(state)) {
       if (ssid) state.ssid = ssid;
       this.sendData(state, vouchers);
@@ -406,6 +420,34 @@ module.exports = NodeHelper.create({
   },
 
   async fetchGuestNetworkName(state) {
+    const now = Date.now();
+    if (state.ssidCheckedAt && now - state.ssidCheckedAt < SSID_CACHE_TTL) {
+      return state.ssid || null;
+    }
+    if (state.ssidLookupPromise) return state.ssidLookupPromise;
+    if (state.ssid && now - (state.ssidFetchedAt || 0) >= SSID_CACHE_TTL) {
+      state.ssid = null;
+      state.ssidFetchedAt = 0;
+    }
+
+    const lookupPromise = this.fetchGuestNetworkNameUncached(state)
+      .then((result) => {
+        if (!result || !result.success) return null;
+        state.ssid = result.ssid || null;
+        state.ssidFetchedAt = result.ssid ? Date.now() : 0;
+        state.ssidCheckedAt = Date.now();
+        return state.ssid;
+      })
+      .finally(() => {
+        if (state.ssidLookupPromise === lookupPromise) {
+          state.ssidLookupPromise = null;
+        }
+      });
+    state.ssidLookupPromise = lookupPromise;
+    return lookupPromise;
+  },
+
+  async fetchGuestNetworkNameUncached(state) {
     const site = encodeURIComponent(state.config.site);
     const endpoints = [
       `/proxy/network/integration/v1/sites/${site}/wlan`,
@@ -425,25 +467,28 @@ module.exports = NodeHelper.create({
           apiKey,
           apiKeyHeader: state.config.apiKeyHeader
         });
-        if (ssid || state.config.authMode === "apikey") return ssid;
+        if (ssid || state.config.authMode === "apikey") {
+          return { success: true, ssid };
+        }
       } catch (error) {
         this.logInternalError(state, error);
-        if (state.config.authMode === "apikey") return null;
+        if (state.config.authMode === "apikey") {
+          return { success: false, ssid: null };
+        }
       }
     }
 
     const username = normalizeString(state.config.username, "");
     const password = normalizeString(state.config.password, "");
-    if (!username || !password) return null;
+    if (!username || !password) return { success: false, ssid: null };
 
     try {
-      if (!state.sessionCookies.length) {
-        await this.login(state, state.config.controllerUrl, username, password);
-      }
-      return await this.fetchGuestNetworkEndpoints(state, endpoints, { cookies: true });
+      await this.ensureLogin(state, state.config.controllerUrl, username, password);
+      const ssid = await this.fetchGuestNetworkEndpoints(state, endpoints, { cookies: true });
+      return { success: true, ssid };
     } catch (error) {
       this.logInternalError(state, error);
-      return null;
+      return { success: false, ssid: null };
     }
   },
 
@@ -483,23 +528,24 @@ module.exports = NodeHelper.create({
     const records = [];
     const queue = [response];
     const seen = new Set();
+    let queueIndex = 0;
 
-    while (queue.length) {
-      const value = queue.shift();
+    while (queueIndex < queue.length) {
+      const value = queue[queueIndex++];
       if (!value || typeof value !== "object" || seen.has(value)) continue;
       seen.add(value);
 
       if (Array.isArray(value)) {
         for (const item of value) {
           if (item && typeof item === "object") {
-            if (item.name || item.ssid || item.hotspot_enabled || item.portal_enabled ||
-                item.is_guest || item.guest_policy || item.type || item.network_type || item.purpose) {
-              records.push(item);
-            } else {
-              queue.push(item);
-            }
+            queue.push(item);
           }
         }
+        continue;
+      }
+
+      if (this.isNetworkRecord(value)) {
+        records.push(value);
         continue;
       }
 
@@ -509,6 +555,13 @@ module.exports = NodeHelper.create({
     }
 
     return records;
+  },
+
+  isNetworkRecord(record) {
+    return Boolean(record && (
+      record.name || record.ssid || record.hotspot_enabled || record.portal_enabled ||
+      record.is_guest || record.guest_policy || record.type || record.network_type || record.purpose
+    ));
   },
 
   isGuestNetwork(record) {
@@ -582,7 +635,7 @@ module.exports = NodeHelper.create({
       throw authenticationError("No usable server-side authentication method.");
     }
 
-    await this.login(state, controllerUrl, username, password);
+    await this.ensureLogin(state, controllerUrl, username, password);
 
     return this.fetchVoucherEndpoints(state, controllerUrl, endpoints, {
       cookies: true
@@ -636,18 +689,32 @@ module.exports = NodeHelper.create({
   },
 
   async retryVoucherFetchAfterReauth(state, controllerUrl, endpoints, authOptions) {
-    state.sessionCookies = [];
-    await this.login(
+    await this.ensureLogin(
       state,
       controllerUrl,
       normalizeString(state.config.username, ""),
-      normalizeString(state.config.password, "")
+      normalizeString(state.config.password, ""),
+      true
     );
     return this.fetchVoucherEndpoints(state, controllerUrl, endpoints, {
       cookies: true,
       apiKey: authOptions && authOptions.apiKey,
       apiKeyHeader: authOptions && authOptions.apiKeyHeader
     }, true);
+  },
+
+  async ensureLogin(state, controllerUrl, username, password, force = false) {
+    if (state.loginPromise) return state.loginPromise;
+    if (!force && state.sessionCookies.length) return;
+    if (force) state.sessionCookies = [];
+
+    const loginPromise = this.login(state, controllerUrl, username, password);
+    state.loginPromise = loginPromise;
+    try {
+      await loginPromise;
+    } finally {
+      if (state.loginPromise === loginPromise) state.loginPromise = null;
+    }
   },
 
   async login(state, controllerUrl, username, password) {
@@ -849,11 +916,6 @@ module.exports = NodeHelper.create({
   },
 
   formatDate(date) {
-    return new Intl.DateTimeFormat(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit"
-    }).format(date);
+    return DATE_FORMATTER.format(date);
   }
 });

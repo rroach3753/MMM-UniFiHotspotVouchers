@@ -296,6 +296,14 @@ test("helper selects a guest WLAN name without exposing controller credentials",
   }
 });
 
+test("network record traversal handles cyclic nested responses", () => {
+  const response = { child: {} };
+  const network = { name: "Guest", type: "guest" };
+  response.child.parent = response;
+  response.child.nested = network;
+  assert.deepEqual(helper.extractNetworkRecords(response), [network]);
+});
+
 test("renderer helper payload excludes connection and authentication fields", () => {
   const definition = loadRendererDefinition();
   let sent;
@@ -478,6 +486,148 @@ test("successful empty API-key response does not fall back to login", async () =
   } finally {
     helper.fetchVoucherEndpoints = originalFetch;
     helper.login = originalLogin;
+  }
+});
+
+test("successful voucher sessions are reused across refreshes", async () => {
+  const state = createState({
+    config: {
+      username: "server-user",
+      password: "server-password",
+      apiKey: "",
+      authMode: "login"
+    }
+  });
+  const originalFetch = helper.fetchVoucherEndpoints;
+  const originalLogin = helper.login;
+  let loginCalls = 0;
+  helper.fetchVoucherEndpoints = async () => [];
+  helper.login = async () => {
+    loginCalls += 1;
+    state.sessionCookies = ["TOKEN=session"];
+  };
+  try {
+    await helper.fetchVouchers(state);
+    await helper.fetchVouchers(state);
+    assert.equal(loginCalls, 1);
+  } finally {
+    helper.fetchVoucherEndpoints = originalFetch;
+    helper.login = originalLogin;
+  }
+});
+
+test("concurrent voucher and WLAN fetches share one login", async () => {
+  const state = createState({
+    config: {
+      username: "server-user",
+      password: "server-password",
+      apiKey: "",
+      authMode: "login"
+    }
+  });
+  const originalLogin = helper.login;
+  const originalVoucherEndpoints = helper.fetchVoucherEndpoints;
+  const originalNetworkEndpoints = helper.fetchGuestNetworkEndpoints;
+  const originalInstances = helper.instances;
+  const originalSendData = helper.sendData;
+  let logins = 0;
+  let complete;
+  helper.login = async () => {
+    logins += 1;
+    await new Promise((resolve) => { complete = resolve; });
+    state.sessionCookies = ["TOKEN=session"];
+  };
+  helper.fetchVoucherEndpoints = async () => [];
+  helper.fetchGuestNetworkEndpoints = async () => "Guest";
+  helper.sendData = () => {};
+  helper.instances = new Map([[state.instanceId, state]]);
+  try {
+    const refresh = helper.refreshData(state);
+    await Promise.resolve();
+    assert.equal(logins, 1);
+    complete();
+    await refresh;
+    assert.equal(state.loginPromise, null);
+  } finally {
+    helper.login = originalLogin;
+    helper.fetchVoucherEndpoints = originalVoucherEndpoints;
+    helper.fetchGuestNetworkEndpoints = originalNetworkEndpoints;
+    helper.instances = originalInstances;
+    helper.sendData = originalSendData;
+  }
+});
+
+test("guest network discovery is cached and runs concurrently with voucher polling", async () => {
+  const state = createState({
+    config: {
+      apiKey: "server-key",
+      authMode: "apikey"
+    }
+  });
+  const originalNetworkEndpoints = helper.fetchGuestNetworkEndpoints;
+  const originalVouchers = helper.fetchVouchers;
+  const originalSendData = helper.sendData;
+  let endpointCalls = 0;
+  let started = 0;
+  let release;
+  const barrier = new Promise((resolve) => { release = resolve; });
+  helper.fetchGuestNetworkEndpoints = async () => {
+    endpointCalls += 1;
+    return "Guest";
+  };
+  helper.fetchVouchers = async () => {
+    started += 1;
+    await barrier;
+    return [];
+  };
+  helper.sendData = () => {};
+  const originalGuestName = helper.fetchGuestNetworkNameUncached;
+  helper.fetchGuestNetworkNameUncached = async () => {
+    started += 1;
+    await barrier;
+    return originalGuestName.call(helper, state);
+  };
+  try {
+    const refresh = helper.refreshData(state);
+    await Promise.resolve();
+    assert.equal(started, 2);
+    release();
+    await refresh;
+    assert.equal(endpointCalls, 1);
+    assert.equal(await helper.fetchGuestNetworkName(state), "Guest");
+    assert.equal(endpointCalls, 1);
+  } finally {
+    helper.fetchGuestNetworkEndpoints = originalNetworkEndpoints;
+    helper.fetchVouchers = originalVouchers;
+    helper.fetchGuestNetworkNameUncached = originalGuestName;
+    helper.sendData = originalSendData;
+  }
+});
+
+test("SSID lookup caches empty results but does not retain expired names after failures", async () => {
+  const state = createState();
+  const originalLookup = helper.fetchGuestNetworkNameUncached;
+  let lookups = 0;
+  let result = { success: true, ssid: null };
+  helper.fetchGuestNetworkNameUncached = async () => {
+    lookups += 1;
+    return result;
+  };
+  try {
+    assert.equal(await helper.fetchGuestNetworkName(state), null);
+    assert.equal(await helper.fetchGuestNetworkName(state), null);
+    assert.equal(lookups, 1);
+
+    state.ssid = "Old Guest";
+    state.ssidFetchedAt = 0;
+    state.ssidCheckedAt = 0;
+    result = { success: false, ssid: null };
+    assert.equal(await helper.fetchGuestNetworkName(state), null);
+    assert.equal(state.ssid, null);
+    await helper.fetchGuestNetworkName(state);
+    assert.equal(lookups, 3);
+  } finally {
+    helper.fetchGuestNetworkNameUncached = originalLookup;
   }
 });
 
