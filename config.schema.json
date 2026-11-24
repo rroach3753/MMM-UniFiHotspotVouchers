@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/rroach3753/MMM-UniFiHotspotVouchers/main/config.schema.json",
+  "title": "MMM-UniFiHotspotVouchers configuration",
+  "description": "Browser-side configuration for MMM-UniFiHotspotVouchers. Controller credentials and voucher disclosure policy are environment-only.",
+  "type": "object",
+  "properties": {
+    "title": { "type": "string", "default": "" },
+    "site": {
+      "type": "string",
+      "default": "default",
+      "description": "Legacy field retained for compatibility; the active site is controlled by the server environment."
+    },
+    "refreshInterval": { "type": "integer", "minimum": 30000, "maximum": 2147483647, "default": 300000 },
+    "requestTimeout": { "type": "integer", "minimum": 1000, "maximum": 30000, "default": 10000 },
+    "showInactive": { "type": "boolean", "default": false },
+    "showSummary": { "type": "boolean", "default": true },
+    "showNotes": { "type": "boolean", "default": true },
+    "showCreatedAt": { "type": "boolean", "default": false },
+    "showVoucherCode": { "type": "boolean", "default": true },
+    "maskVoucherCode": { "type": "boolean", "default": false },
+    "sortBy": { "type": "string", "enum": ["created", "code"], "default": "created" },
+    "maxRows": { "type": "integer", "minimum": 1, "default": 12 },
+    "compact": { "type": "boolean", "default": false },
+    "showBorders": { "type": "boolean", "default": true },
+    "showBackground": { "type": "boolean", "default": true },
+    "debug": { "type": "boolean", "default": false },
+    "emptyMessage": { "type": "string", "default": "No hotspot vouchers found." },
+    "loadingMessage": { "type": "string", "default": "Loading UniFi vouchers..." }
+  },
+  "additionalProperties": false
+}

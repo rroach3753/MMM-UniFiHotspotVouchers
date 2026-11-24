@@ -142,6 +142,11 @@ Add this to your `config/config.js` file:
 
 ## Configuration Options
 
+The [`config.schema.json`](./config.schema.json) file provides validation,
+completion, and default-value hints for the browser-side module `config`
+object. Controller credentials and voucher disclosure policy remain server
+environment settings and are intentionally excluded.
+
 Server connection and authentication values must be provided using the
 environment variables in the next section. Renderer options are optional and
 fall back to the defaults shown below.
